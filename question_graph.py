@@ -1,7 +1,7 @@
 from __future__ import annotations as _annotations
 
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import logfire
 from pydantic import BaseModel, Field, field_validator, ValidationError
@@ -16,6 +16,14 @@ from pydantic_graph.persistence.file import FileStatePersistence
 from pydantic_ai import Agent, format_as_xml
 from pydantic_ai.messages import ModelMessage
 
+from graphiti_client import GraphitiClient
+from graphiti_entities import UserEntity
+
+# Import for type checking to avoid circular imports
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from graphiti_client import GraphitiClient as _GraphitiClient
+
 # 'if-token-present' means nothing will be sent (and the example will work) if you don't have logfire configured
 logfire.configure(send_to_logfire='if-token-present')
 logfire.instrument_pydantic_ai()
@@ -28,6 +36,7 @@ class QuestionState(BaseModel):
     
     Maintains conversation state including current question and agent message histories.
     Compatible with pydantic_graph's FileStatePersistence for session restoration.
+    Now includes GraphitiClient for temporal knowledge graph integration.
     """
     model_config = {"arbitrary_types_allowed": True}
     
@@ -44,6 +53,20 @@ class QuestionState(BaseModel):
         default_factory=list,
         description="Message history for the answer evaluation agent", 
         exclude_unset=True
+    )
+    graphiti_client: Optional[GraphitiClient] = Field(
+        default=None,
+        description="Graphiti client for knowledge graph interactions",
+        exclude=True  # Exclude from serialization
+    )
+    current_user: Optional[UserEntity] = Field(
+        default=None,
+        description="Current user entity for the session",
+        exclude=True  # Exclude from serialization
+    )
+    session_id: Optional[str] = Field(
+        default=None,
+        description="Session ID for tracking Q&A interactions"
     )
 
 
@@ -193,18 +216,87 @@ question_graph = Graph(
 )
 
 
+async def initialize_graphiti_state(
+    state: Optional[QuestionState] = None,
+    user_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    enable_graphiti: bool = True
+) -> QuestionState:
+    """Initialize QuestionState with GraphitiClient.
+    
+    Args:
+        state: Existing state to enhance (if None, creates new)
+        user_id: User ID for the session
+        session_id: Session ID (generated if not provided)
+        enable_graphiti: Whether to enable Graphiti integration
+        
+    Returns:
+        Initialized QuestionState
+    """
+    import uuid
+    
+    if state is None:
+        state = QuestionState()
+    
+    # Set session ID
+    if session_id is None:
+        session_id = str(uuid.uuid4())
+    state.session_id = session_id
+    
+    # Initialize Graphiti client if enabled
+    if enable_graphiti:
+        try:
+            state.graphiti_client = GraphitiClient()
+            await state.graphiti_client.connect()
+            logfire.info(f"Initialized Graphiti client for session {session_id}")
+            
+            # Create or get user entity
+            if user_id is None:
+                user_id = f"user_{uuid.uuid4().hex[:8]}"
+            
+            state.current_user = UserEntity(
+                id=user_id,
+                session_id=session_id,
+                total_questions=0,
+                correct_answers=0,
+                average_response_time=0.0
+            )
+            
+        except Exception as e:
+            logfire.error(f"Failed to initialize Graphiti: {e}")
+            # Continue without Graphiti if it fails
+            state.graphiti_client = None
+            state.current_user = None
+    
+    return state
+
+
 async def run_as_continuous():
     with logfire.span('continuous_mode.session') as span:
         logfire.info('Starting continuous mode session')
         
-        state = QuestionState()
-        node = Ask()
-        end = await question_graph.run(node, state=state)
+        # Initialize state with Graphiti
+        state = await initialize_graphiti_state(enable_graphiti=True)
         
-        span.set_attribute('session_result', end.output)
-        logfire.info('Continuous mode session completed', result=end.output)
-        
-        print('END:', end.output)
+        try:
+            node = Ask()
+            end = await question_graph.run(node, state=state)
+            
+            span.set_attribute('session_result', end.output)
+            span.set_attribute('session_id', state.session_id)
+            logfire.info('Continuous mode session completed', result=end.output)
+            
+            print('END:', end.output)
+            
+            # Get session stats if Graphiti is enabled
+            if state.graphiti_client:
+                stats = state.graphiti_client.get_session_stats()
+                print(f"\nSession Stats: {stats}")
+                
+        finally:
+            # Clean up Graphiti connection
+            if state.graphiti_client:
+                await state.graphiti_client.disconnect()
 
 
 async def run_as_cli(answer: str | None):
@@ -217,34 +309,55 @@ async def run_as_cli(answer: str | None):
             span.set_attribute('session_type', 'resumed')
             logfire.info('Resuming CLI session from saved state')
             
+            # Re-initialize Graphiti client for resumed session
+            state = await initialize_graphiti_state(
+                state=state,
+                session_id=state.session_id,
+                enable_graphiti=True
+            )
+            
             assert answer is not None, (
                 'answer required, usage "uv run -m pydantic_ai_examples.question_graph cli <answer>"'
             )
             node = Evaluate(answer)
         else:
-            state = QuestionState()
+            # Initialize new state with Graphiti
+            state = await initialize_graphiti_state(enable_graphiti=True)
             node = Ask()
             span.set_attribute('session_type', 'new')
             logfire.info('Starting new CLI session')
         # debug(state, node)
 
-        async with question_graph.iter(node, state=state, persistence=persistence) as run:
-            while True:
-                node = await run.next()
-                if isinstance(node, End):
-                    span.set_attribute('session_result', node.data)
-                    logfire.info('CLI session completed', result=node.data)
+        try:
+            async with question_graph.iter(node, state=state, persistence=persistence) as run:
+                while True:
+                    node = await run.next()
+                    if isinstance(node, End):
+                        span.set_attribute('session_result', node.data)
+                        span.set_attribute('session_id', state.session_id)
+                        logfire.info('CLI session completed', result=node.data)
+                        
+                        print('END:', node.data)
+                        history = await persistence.load_all()
+                        print('history:', '\n'.join(str(e.node) for e in history), sep='\n')
+                        
+                        # Show session stats if Graphiti is enabled
+                        if state.graphiti_client:
+                            stats = state.graphiti_client.get_session_stats()
+                            print(f"\nSession Stats: {stats}")
+                        
+                        print('Finished!')
+                        break
+                    elif isinstance(node, Answer):
+                        logfire.info('Waiting for user input', question=node.question)
+                        print(node.question)
+                        break
+                    # otherwise just continue
                     
-                    print('END:', node.data)
-                    history = await persistence.load_all()
-                    print('history:', '\n'.join(str(e.node) for e in history), sep='\n')
-                    print('Finished!')
-                    break
-                elif isinstance(node, Answer):
-                    logfire.info('Waiting for user input', question=node.question)
-                    print(node.question)
-                    break
-                # otherwise just continue
+        finally:
+            # Clean up Graphiti connection
+            if state.graphiti_client:
+                await state.graphiti_client.disconnect()
 
 
 if __name__ == '__main__':
