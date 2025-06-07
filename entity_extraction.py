@@ -59,6 +59,360 @@ class ComplexityMetrics(BaseModel):
     overall_complexity: float = Field(ge=0.0, le=1.0)
 
 
+# Sub-task 3.3: Answer classification models
+class AnswerPattern(BaseModel):
+    """Pattern for matching answer types."""
+    
+    pattern_type: str  # 'exact', 'fuzzy', 'semantic', 'numeric', 'pattern'
+    expected_values: List[str] = Field(default_factory=list)
+    similarity_threshold: float = Field(default=0.8, ge=0.0, le=1.0)
+    case_sensitive: bool = False
+    allow_partial: bool = True
+    numeric_tolerance: Optional[float] = None
+
+
+class AnswerEvaluation(BaseModel):
+    """Result of answer evaluation."""
+    
+    status: AnswerStatus
+    confidence: float = Field(ge=0.0, le=1.0)
+    matched_patterns: List[str] = Field(default_factory=list)
+    partial_matches: List[str] = Field(default_factory=list)
+    feedback: str
+    suggestions: List[str] = Field(default_factory=list)
+    score: float = Field(ge=0.0, le=1.0)  # 0=incorrect, 0.5=partial, 1=correct
+
+
+class AnswerClassifier:
+    """Classify answers as correct, incorrect, or partial."""
+    
+    def __init__(self):
+        """Initialize the answer classifier."""
+        self.similarity_cache: Dict[Tuple[str, str], float] = {}
+        self.pattern_cache: Dict[str, re.Pattern] = {}
+    
+    def calculate_similarity(self, text1: str, text2: str, method: str = 'token') -> float:
+        """
+        Calculate similarity between two texts.
+        
+        Args:
+            text1: First text
+            text2: Second text
+            method: Similarity method ('exact', 'token', 'fuzzy')
+            
+        Returns:
+            Similarity score (0-1)
+        """
+        # Check cache
+        cache_key = (text1.lower(), text2.lower())
+        if cache_key in self.similarity_cache:
+            return self.similarity_cache[cache_key]
+        
+        if method == 'exact':
+            score = 1.0 if text1.lower() == text2.lower() else 0.0
+        
+        elif method == 'token':
+            # Token-based similarity (Jaccard)
+            tokens1 = set(re.findall(r'\b\w+\b', text1.lower()))
+            tokens2 = set(re.findall(r'\b\w+\b', text2.lower()))
+            
+            if not tokens1 or not tokens2:
+                score = 0.0
+            else:
+                intersection = tokens1 & tokens2
+                union = tokens1 | tokens2
+                score = len(intersection) / len(union)
+        
+        elif method == 'fuzzy':
+            # Simple character-based similarity
+            longer = max(len(text1), len(text2))
+            if longer == 0:
+                score = 1.0
+            else:
+                # Count matching characters in order
+                matches = 0
+                for i, char in enumerate(text1.lower()):
+                    if i < len(text2) and char == text2.lower()[i]:
+                        matches += 1
+                score = matches / longer
+        
+        else:
+            score = 0.0
+        
+        # Cache result
+        self.similarity_cache[cache_key] = score
+        return score
+    
+    def evaluate_numeric_answer(
+        self,
+        answer: str,
+        expected: str,
+        tolerance: float = 0.01
+    ) -> Tuple[bool, float]:
+        """
+        Evaluate numeric answers with tolerance.
+        
+        Args:
+            answer: User's answer
+            expected: Expected answer
+            tolerance: Acceptable deviation (default 1%)
+            
+        Returns:
+            Tuple of (is_correct, confidence)
+        """
+        try:
+            # Extract numbers from both strings
+            answer_nums = re.findall(r'-?\d+\.?\d*', answer)
+            expected_nums = re.findall(r'-?\d+\.?\d*', expected)
+            
+            if not answer_nums or not expected_nums:
+                return False, 0.0
+            
+            # Convert to float
+            answer_val = float(answer_nums[0])
+            expected_val = float(expected_nums[0])
+            
+            # Check if within tolerance
+            if expected_val == 0:
+                is_correct = answer_val == 0
+            else:
+                relative_error = abs(answer_val - expected_val) / abs(expected_val)
+                is_correct = relative_error <= tolerance
+            
+            # Calculate confidence based on accuracy
+            if is_correct:
+                if answer_val == expected_val:
+                    confidence = 1.0
+                else:
+                    confidence = 1.0 - (relative_error / tolerance)
+            else:
+                confidence = max(0.0, 1.0 - relative_error)
+            
+            return is_correct, confidence
+            
+        except (ValueError, IndexError):
+            return False, 0.0
+    
+    def classify_answer(
+        self,
+        answer: str,
+        expected_patterns: List[AnswerPattern],
+        question_type: Optional[Dict[str, bool]] = None
+    ) -> AnswerEvaluation:
+        """
+        Classify an answer based on expected patterns.
+        
+        Args:
+            answer: User's answer
+            expected_patterns: List of acceptable answer patterns
+            question_type: Optional question type classification
+            
+        Returns:
+            AnswerEvaluation with status and details
+        """
+        answer = answer.strip()
+        best_score = 0.0
+        best_pattern = None
+        all_matches = []
+        partial_matches = []
+        
+        for pattern in expected_patterns:
+            score = 0.0
+            matched = False
+            
+            if pattern.pattern_type == 'exact':
+                for expected in pattern.expected_values:
+                    if pattern.case_sensitive:
+                        if answer == expected:
+                            score = 1.0
+                            matched = True
+                            break
+                    else:
+                        if answer.lower() == expected.lower():
+                            score = 1.0
+                            matched = True
+                            break
+            
+            elif pattern.pattern_type == 'fuzzy':
+                for expected in pattern.expected_values:
+                    sim = self.calculate_similarity(answer, expected, 'token')
+                    if sim >= pattern.similarity_threshold:
+                        score = sim
+                        matched = True
+                        break
+                    elif sim > 0.5 and pattern.allow_partial:
+                        partial_matches.append(expected)
+            
+            elif pattern.pattern_type == 'numeric':
+                for expected in pattern.expected_values:
+                    is_correct, confidence = self.evaluate_numeric_answer(
+                        answer, expected, 
+                        pattern.numeric_tolerance or 0.01
+                    )
+                    if is_correct:
+                        score = confidence
+                        matched = True
+                        break
+            
+            elif pattern.pattern_type == 'pattern':
+                for expected_pattern in pattern.expected_values:
+                    if expected_pattern not in self.pattern_cache:
+                        self.pattern_cache[expected_pattern] = re.compile(
+                            expected_pattern, 
+                            re.IGNORECASE if not pattern.case_sensitive else 0
+                        )
+                    
+                    regex = self.pattern_cache[expected_pattern]
+                    if regex.search(answer):
+                        score = 1.0
+                        matched = True
+                        break
+            
+            if matched:
+                all_matches.append(pattern.expected_values[0])
+            
+            if score > best_score:
+                best_score = score
+                best_pattern = pattern
+        
+        # Determine status and feedback
+        if best_score >= 0.9:
+            status = AnswerStatus.CORRECT
+            feedback = "Excellent! Your answer is correct."
+            suggestions = []
+        elif best_score >= 0.6 and best_pattern and best_pattern.allow_partial:
+            status = AnswerStatus.PARTIAL
+            feedback = "Good effort! Your answer is partially correct."
+            suggestions = ["Consider being more specific", "Review the exact terminology"]
+        else:
+            status = AnswerStatus.INCORRECT
+            feedback = "Not quite right. Let's review this topic."
+            suggestions = self._generate_suggestions(answer, expected_patterns, partial_matches)
+        
+        # Adjust for yes/no questions
+        if question_type and question_type.get('yes_no'):
+            if self._is_yes_no_answer(answer):
+                # For yes/no questions, partial credit doesn't make sense
+                if best_score > 0.5:
+                    status = AnswerStatus.CORRECT
+                    best_score = 1.0
+                else:
+                    status = AnswerStatus.INCORRECT
+                    best_score = 0.0
+        
+        return AnswerEvaluation(
+            status=status,
+            confidence=best_score,
+            matched_patterns=all_matches,
+            partial_matches=partial_matches,
+            feedback=feedback,
+            suggestions=suggestions,
+            score=best_score
+        )
+    
+    def _is_yes_no_answer(self, answer: str) -> bool:
+        """Check if answer is a yes/no response."""
+        answer_lower = answer.lower().strip()
+        yes_patterns = {'yes', 'y', 'yeah', 'yep', 'correct', 'true', 'affirmative'}
+        no_patterns = {'no', 'n', 'nope', 'incorrect', 'false', 'negative'}
+        
+        return answer_lower in yes_patterns or answer_lower in no_patterns
+    
+    def _generate_suggestions(
+        self,
+        answer: str,
+        expected_patterns: List[AnswerPattern],
+        partial_matches: List[str]
+    ) -> List[str]:
+        """Generate helpful suggestions for incorrect answers."""
+        suggestions = []
+        
+        # Check if answer is too short
+        if len(answer.split()) < 3:
+            suggestions.append("Try providing more detail in your answer")
+        
+        # Check for common mistakes
+        if partial_matches:
+            suggestions.append(f"You're on the right track. Consider: {partial_matches[0]}")
+        
+        # Check for numeric patterns
+        has_numbers = re.search(r'\d+', answer)
+        expects_numbers = any(
+            p.pattern_type == 'numeric' 
+            for p in expected_patterns
+        )
+        
+        if expects_numbers and not has_numbers:
+            suggestions.append("This question expects a numeric answer")
+        elif has_numbers and not expects_numbers:
+            suggestions.append("Check if a numeric answer is appropriate here")
+        
+        # Limit suggestions
+        return suggestions[:3]
+    
+    def create_answer_patterns(
+        self,
+        correct_answers: List[str],
+        question_type: Optional[Dict[str, bool]] = None
+    ) -> List[AnswerPattern]:
+        """
+        Create answer patterns from correct answer examples.
+        
+        Args:
+            correct_answers: List of acceptable answers
+            question_type: Optional question type classification
+            
+        Returns:
+            List of AnswerPattern objects
+        """
+        patterns = []
+        
+        # Analyze answer characteristics
+        all_numeric = all(
+            re.match(r'^-?\d+\.?\d*\s*\w*$', ans.strip()) 
+            for ans in correct_answers
+        )
+        
+        if all_numeric:
+            # Numeric answers
+            patterns.append(AnswerPattern(
+                pattern_type='numeric',
+                expected_values=correct_answers,
+                numeric_tolerance=0.01,
+                allow_partial=False
+            ))
+        
+        elif question_type and question_type.get('yes_no'):
+            # Yes/no questions
+            patterns.append(AnswerPattern(
+                pattern_type='exact',
+                expected_values=correct_answers,
+                case_sensitive=False,
+                allow_partial=False
+            ))
+        
+        else:
+            # Text answers - use multiple strategies
+            # Exact match
+            patterns.append(AnswerPattern(
+                pattern_type='exact',
+                expected_values=correct_answers,
+                case_sensitive=False,
+                allow_partial=False
+            ))
+            
+            # Fuzzy match for longer answers
+            if any(len(ans.split()) > 3 for ans in correct_answers):
+                patterns.append(AnswerPattern(
+                    pattern_type='fuzzy',
+                    expected_values=correct_answers,
+                    similarity_threshold=0.7,
+                    allow_partial=True
+                ))
+        
+        return patterns
+
+
 # Sub-task 3.1: Basic EntityExtractor class
 class TopicKeywords(BaseModel):
     """Topic keyword mapping for extraction."""
@@ -104,6 +458,9 @@ class EntityExtractor:
         
         # Cache for performance
         self._extraction_cache: Dict[str, List[ExtractedTopic]] = {}
+        
+        # Initialize answer classifier
+        self.answer_classifier = AnswerClassifier()
     
     def _initialize_default_topics(self) -> Dict[str, TopicKeywords]:
         """Initialize default topic keyword mappings."""
@@ -739,6 +1096,255 @@ class EntityExtractor:
             'procedural': any(q in text_lower for q in ['how to', 'steps', 'process']),
             'analytical': any(q in text_lower for q in ['analyze', 'examine', 'investigate']),
             'yes_no': text.strip().startswith(('is', 'are', 'do', 'does', 'can', 'will'))
+        }
+    
+    # Sub-task 3.3: Answer classification methods
+    def extract_answer_entity(
+        self,
+        answer_text: str,
+        question_text: str,
+        expected_answers: Optional[List[str]] = None,
+        user_id: str = "anonymous",
+        session_id: str = "default",
+        response_time: float = 0.0
+    ) -> Tuple[AnswerEntity, AnswerEvaluation]:
+        """
+        Extract an AnswerEntity with evaluation from answer text.
+        
+        Args:
+            answer_text: User's answer
+            question_text: The question being answered
+            expected_answers: Optional list of correct answers
+            user_id: User identifier
+            session_id: Session identifier
+            response_time: Time taken to answer
+            
+        Returns:
+            Tuple of (AnswerEntity, AnswerEvaluation)
+        """
+        # Get question type for better classification
+        question_type = self.classify_question_type(question_text)
+        
+        # Create answer patterns if expected answers provided
+        if expected_answers:
+            patterns = self.answer_classifier.create_answer_patterns(
+                expected_answers,
+                question_type
+            )
+            
+            # Evaluate the answer
+            evaluation = self.answer_classifier.classify_answer(
+                answer_text,
+                patterns,
+                question_type
+            )
+        else:
+            # No expected answers - create unevaluated response
+            evaluation = AnswerEvaluation(
+                status=AnswerStatus.UNEVALUATED,
+                confidence=0.0,
+                feedback="Answer recorded but not evaluated",
+                score=0.0
+            )
+        
+        # Create answer entity
+        answer_entity = AnswerEntity(
+            question_id=f"q_{hash(question_text)}",
+            user_id=user_id,
+            session_id=session_id,
+            content=answer_text,
+            status=evaluation.status,
+            confidence_score=evaluation.confidence,
+            response_time_seconds=response_time,
+            feedback=evaluation.feedback
+        )
+        
+        logfire.info(
+            "Answer entity extracted",
+            status=evaluation.status.value,
+            confidence=evaluation.confidence,
+            has_suggestions=len(evaluation.suggestions) > 0
+        )
+        
+        return answer_entity, evaluation
+    
+    def evaluate_answer_similarity(
+        self,
+        answer1: str,
+        answer2: str,
+        method: str = 'token'
+    ) -> float:
+        """
+        Evaluate similarity between two answers.
+        
+        Args:
+            answer1: First answer
+            answer2: Second answer
+            method: Similarity method ('exact', 'token', 'fuzzy')
+            
+        Returns:
+            Similarity score (0-1)
+        """
+        return self.answer_classifier.calculate_similarity(answer1, answer2, method)
+    
+    def create_answer_patterns_from_qa(
+        self,
+        question: str,
+        correct_answers: List[str],
+        topic_hints: Optional[List[str]] = None
+    ) -> List[AnswerPattern]:
+        """
+        Create intelligent answer patterns based on question and answers.
+        
+        Args:
+            question: Question text
+            correct_answers: List of correct answers
+            topic_hints: Optional topic hints for pattern creation
+            
+        Returns:
+            List of AnswerPattern objects
+        """
+        question_type = self.classify_question_type(question)
+        patterns = self.answer_classifier.create_answer_patterns(
+            correct_answers,
+            question_type
+        )
+        
+        # Enhance patterns based on topics if provided
+        if topic_hints:
+            # Add pattern variations based on topic terminology
+            for topic in topic_hints:
+                if topic in self.topics:
+                    topic_def = self.topics[topic]
+                    
+                    # Check if any keywords should be acceptable alternatives
+                    for keyword in topic_def.primary_keywords:
+                        for pattern in patterns:
+                            if pattern.pattern_type == 'fuzzy':
+                                # Add topic keywords as acceptable variations
+                                pattern.expected_values.extend([
+                                    ans.replace(word, keyword)
+                                    for ans in correct_answers
+                                    for word in ans.split()
+                                    if word.lower() in topic_def.secondary_keywords
+                                ])
+        
+        return patterns
+    
+    def generate_answer_feedback(
+        self,
+        evaluation: AnswerEvaluation,
+        question_difficulty: Optional[DifficultyLevel] = None,
+        user_mastery: Optional[float] = None
+    ) -> str:
+        """
+        Generate personalized feedback based on evaluation and context.
+        
+        Args:
+            evaluation: Answer evaluation result
+            question_difficulty: Optional question difficulty
+            user_mastery: Optional user mastery level (0-1)
+            
+        Returns:
+            Personalized feedback message
+        """
+        base_feedback = evaluation.feedback
+        
+        # Enhance feedback based on context
+        if evaluation.status == AnswerStatus.CORRECT:
+            if question_difficulty == DifficultyLevel.EXPERT:
+                return f"{base_feedback} Impressive work on this challenging question!"
+            elif user_mastery and user_mastery < 0.5:
+                return f"{base_feedback} You're making great progress!"
+                
+        elif evaluation.status == AnswerStatus.PARTIAL:
+            if evaluation.suggestions:
+                return f"{base_feedback}\n\nHints: {'; '.join(evaluation.suggestions[:2])}"
+            else:
+                return f"{base_feedback} You're close to the complete answer."
+                
+        elif evaluation.status == AnswerStatus.INCORRECT:
+            if question_difficulty == DifficultyLevel.EASY and user_mastery and user_mastery > 0.7:
+                return "This seems like a simple mistake. Take another look at the question."
+            elif evaluation.partial_matches:
+                return f"{base_feedback} You mentioned some relevant concepts: {', '.join(evaluation.partial_matches[:2])}"
+        
+        return base_feedback
+    
+    def analyze_answer_patterns(
+        self,
+        answer_history: List[Tuple[str, AnswerStatus]]
+    ) -> Dict[str, Any]:
+        """
+        Analyze patterns in answer history.
+        
+        Args:
+            answer_history: List of (answer_text, status) tuples
+            
+        Returns:
+            Dictionary with pattern analysis
+        """
+        if not answer_history:
+            return {
+                'total_answers': 0,
+                'accuracy_rate': 0.0,
+                'common_mistakes': [],
+                'improvement_trend': 'insufficient_data'
+            }
+        
+        # Basic statistics
+        total = len(answer_history)
+        correct = sum(1 for _, status in answer_history if status == AnswerStatus.CORRECT)
+        partial = sum(1 for _, status in answer_history if status == AnswerStatus.PARTIAL)
+        
+        # Common mistakes (for incorrect answers)
+        incorrect_answers = [ans for ans, status in answer_history if status == AnswerStatus.INCORRECT]
+        
+        # Find common patterns in mistakes
+        common_mistakes = []
+        if incorrect_answers:
+            # Look for common words in incorrect answers
+            word_freq = Counter()
+            for ans in incorrect_answers:
+                words = re.findall(r'\b\w+\b', ans.lower())
+                word_freq.update(words)
+            
+            # Filter out common words
+            stop_words = {'the', 'a', 'an', 'is', 'it', 'and', 'or', 'but', 'in', 'on', 'at'}
+            common_mistakes = [
+                word for word, count in word_freq.most_common(5)
+                if count > 1 and word not in stop_words
+            ]
+        
+        # Improvement trend (simple)
+        if total < 3:
+            trend = 'insufficient_data'
+        else:
+            recent_accuracy = sum(
+                1 for _, status in answer_history[-3:]
+                if status in [AnswerStatus.CORRECT, AnswerStatus.PARTIAL]
+            ) / 3
+            
+            early_accuracy = sum(
+                1 for _, status in answer_history[:3]
+                if status in [AnswerStatus.CORRECT, AnswerStatus.PARTIAL]
+            ) / 3
+            
+            if recent_accuracy > early_accuracy + 0.2:
+                trend = 'improving'
+            elif recent_accuracy < early_accuracy - 0.2:
+                trend = 'declining'
+            else:
+                trend = 'stable'
+        
+        return {
+            'total_answers': total,
+            'correct_answers': correct,
+            'partial_answers': partial,
+            'accuracy_rate': correct / total,
+            'partial_credit_rate': (correct + partial * 0.5) / total,
+            'common_mistakes': common_mistakes,
+            'improvement_trend': trend
         }
 
 
