@@ -27,6 +27,38 @@ from graphiti_entities import (
 )
 
 
+# Sub-task 3.2: Difficulty estimation metrics
+class ComplexityMetrics(BaseModel):
+    """Metrics for measuring question complexity."""
+    
+    word_count: int = Field(ge=0)
+    avg_word_length: float = Field(ge=0.0)
+    sentence_count: int = Field(ge=1)
+    avg_sentence_length: float = Field(ge=0.0)
+    
+    # Linguistic complexity
+    complex_word_count: int = Field(ge=0)  # Words > 6 characters
+    technical_term_count: int = Field(ge=0)
+    subordinate_clause_count: int = Field(ge=0)
+    
+    # Question type indicators
+    has_negation: bool = False
+    has_comparison: bool = False
+    has_multiple_parts: bool = False
+    requires_calculation: bool = False
+    requires_reasoning: bool = False
+    
+    # Cognitive load
+    concept_count: int = Field(ge=0)
+    relationship_count: int = Field(ge=0)
+    abstraction_level: float = Field(ge=0.0, le=1.0)
+    
+    # Overall scores
+    linguistic_complexity: float = Field(ge=0.0, le=1.0)
+    cognitive_complexity: float = Field(ge=0.0, le=1.0)
+    overall_complexity: float = Field(ge=0.0, le=1.0)
+
+
 # Sub-task 3.1: Basic EntityExtractor class
 class TopicKeywords(BaseModel):
     """Topic keyword mapping for extraction."""
@@ -269,28 +301,45 @@ class EntityExtractor:
         question_id: Optional[str] = None
     ) -> QuestionEntity:
         """
-        Extract a QuestionEntity from question text.
+        Extract a QuestionEntity from question text with difficulty estimation.
         
         Args:
             question_text: The question text
             question_id: Optional ID for the question
             
         Returns:
-            Extracted QuestionEntity
+            Extracted QuestionEntity with topics and difficulty
         """
         # Extract topics
         extracted_topics = self.extract_topics(question_text)
         topic_names = [t.topic_name for t in extracted_topics]
         
+        # Estimate difficulty
+        difficulty_level, difficulty_score, metrics = self.estimate_difficulty(
+            question_text, 
+            extracted_topics
+        )
+        
         # Create question entity using factory
         question = EntityFactory.create_question_from_text(
             content=question_text,
-            topics=topic_names if topic_names else ["general"]
+            topics=topic_names if topic_names else ["general"],
+            difficulty=difficulty_level
         )
         
         # Override ID if provided
         if question_id:
             question.id = question_id
+        
+        # Log extraction results
+        logfire.info(
+            "Question entity extracted",
+            question_id=question.id,
+            topics=topic_names,
+            difficulty=difficulty_level.value,
+            word_count=metrics.word_count,
+            cognitive_complexity=metrics.cognitive_complexity
+        )
         
         return question
     
@@ -430,6 +479,267 @@ class EntityExtractor:
         """Clear the extraction cache."""
         self._extraction_cache.clear()
         logfire.info("Entity extraction cache cleared")
+    
+    # Sub-task 3.2: Difficulty estimation methods
+    def analyze_complexity(self, text: str) -> ComplexityMetrics:
+        """
+        Analyze text complexity using multiple metrics.
+        
+        Args:
+            text: Text to analyze
+            
+        Returns:
+            ComplexityMetrics with detailed measurements
+        """
+        with logfire.span("entity_extractor.analyze_complexity") as span:
+            # Basic text statistics
+            words = re.findall(r'\b\w+\b', text)
+            word_count = len(words)
+            
+            # Sentence detection (simple approach)
+            sentences = re.split(r'[.!?]+', text)
+            sentences = [s.strip() for s in sentences if s.strip()]
+            sentence_count = max(1, len(sentences))
+            
+            # Word complexity
+            complex_words = [w for w in words if len(w) > 6]
+            complex_word_count = len(complex_words)
+            
+            # Average calculations
+            avg_word_length = sum(len(w) for w in words) / word_count if word_count > 0 else 0
+            avg_sentence_length = word_count / sentence_count
+            
+            # Technical terms (based on topic keywords)
+            technical_terms = set()
+            for topic in self.topics.values():
+                technical_terms.update(topic.primary_keywords)
+                technical_terms.update(topic.secondary_keywords)
+            
+            technical_term_count = sum(
+                1 for w in words 
+                if w.lower() in technical_terms
+            )
+            
+            # Question type indicators
+            text_lower = text.lower()
+            has_negation = any(neg in text_lower for neg in ['not', 'no', 'never', 'neither', 'none'])
+            has_comparison = any(comp in text_lower for comp in ['more', 'less', 'better', 'worse', 'than'])
+            has_multiple_parts = ' and ' in text_lower or ' or ' in text_lower or ';' in text
+            requires_calculation = any(calc in text_lower for calc in ['calculate', 'compute', 'solve', 'find the value'])
+            requires_reasoning = any(reason in text_lower for reason in ['why', 'how', 'explain', 'analyze', 'compare'])
+            
+            # Subordinate clauses (simple detection)
+            subordinate_markers = ['because', 'although', 'while', 'when', 'if', 'since', 'unless']
+            subordinate_clause_count = sum(
+                1 for marker in subordinate_markers 
+                if marker in text_lower
+            )
+            
+            # Concept extraction
+            concepts = self.extract_concepts_from_text(text)
+            concept_count = len(concepts)
+            
+            # Relationship indicators
+            relationship_markers = ['between', 'among', 'related to', 'connected', 'causes', 'leads to']
+            relationship_count = sum(
+                1 for marker in relationship_markers 
+                if marker in text_lower
+            )
+            
+            # Abstraction level (based on abstract vs concrete words)
+            abstract_indicators = ['concept', 'theory', 'idea', 'principle', 'hypothesis', 'abstract']
+            concrete_indicators = ['object', 'person', 'place', 'specific', 'example', 'instance']
+            
+            abstract_score = sum(1 for ind in abstract_indicators if ind in text_lower)
+            concrete_score = sum(1 for ind in concrete_indicators if ind in text_lower)
+            
+            abstraction_level = abstract_score / (abstract_score + concrete_score + 1)
+            
+            # Calculate complexity scores
+            linguistic_complexity = self._calculate_linguistic_complexity(
+                word_count, avg_word_length, avg_sentence_length,
+                complex_word_count, subordinate_clause_count
+            )
+            
+            cognitive_complexity = self._calculate_cognitive_complexity(
+                concept_count, relationship_count, abstraction_level,
+                has_negation, has_comparison, has_multiple_parts,
+                requires_calculation, requires_reasoning
+            )
+            
+            overall_complexity = (linguistic_complexity + cognitive_complexity) / 2
+            
+            metrics = ComplexityMetrics(
+                word_count=word_count,
+                avg_word_length=avg_word_length,
+                sentence_count=sentence_count,
+                avg_sentence_length=avg_sentence_length,
+                complex_word_count=complex_word_count,
+                technical_term_count=technical_term_count,
+                subordinate_clause_count=subordinate_clause_count,
+                has_negation=has_negation,
+                has_comparison=has_comparison,
+                has_multiple_parts=has_multiple_parts,
+                requires_calculation=requires_calculation,
+                requires_reasoning=requires_reasoning,
+                concept_count=concept_count,
+                relationship_count=relationship_count,
+                abstraction_level=abstraction_level,
+                linguistic_complexity=linguistic_complexity,
+                cognitive_complexity=cognitive_complexity,
+                overall_complexity=overall_complexity
+            )
+            
+            span.set_attribute("overall_complexity", overall_complexity)
+            return metrics
+    
+    def _calculate_linguistic_complexity(
+        self,
+        word_count: int,
+        avg_word_length: float,
+        avg_sentence_length: float,
+        complex_word_count: int,
+        subordinate_clause_count: int
+    ) -> float:
+        """Calculate linguistic complexity score (0-1)."""
+        # Normalize factors
+        word_count_score = min(1.0, word_count / 50)  # 50+ words is max complexity
+        word_length_score = min(1.0, (avg_word_length - 3) / 5)  # 8+ avg length is max
+        sentence_length_score = min(1.0, avg_sentence_length / 25)  # 25+ words/sentence is max
+        complex_word_ratio = complex_word_count / word_count if word_count > 0 else 0
+        subordinate_score = min(1.0, subordinate_clause_count / 3)  # 3+ clauses is max
+        
+        # Weighted average
+        linguistic_complexity = (
+            word_count_score * 0.15 +
+            word_length_score * 0.25 +
+            sentence_length_score * 0.20 +
+            complex_word_ratio * 0.25 +
+            subordinate_score * 0.15
+        )
+        
+        return min(1.0, linguistic_complexity)
+    
+    def _calculate_cognitive_complexity(
+        self,
+        concept_count: int,
+        relationship_count: int,
+        abstraction_level: float,
+        has_negation: bool,
+        has_comparison: bool,
+        has_multiple_parts: bool,
+        requires_calculation: bool,
+        requires_reasoning: bool
+    ) -> float:
+        """Calculate cognitive complexity score (0-1)."""
+        # Concept density
+        concept_score = min(1.0, concept_count / 5)  # 5+ concepts is max
+        relationship_score = min(1.0, relationship_count / 3)  # 3+ relationships is max
+        
+        # Boolean factors
+        negation_score = 0.2 if has_negation else 0.0
+        comparison_score = 0.2 if has_comparison else 0.0
+        multipart_score = 0.3 if has_multiple_parts else 0.0
+        calculation_score = 0.4 if requires_calculation else 0.0
+        reasoning_score = 0.4 if requires_reasoning else 0.0
+        
+        # Combine scores
+        cognitive_complexity = (
+            concept_score * 0.2 +
+            relationship_score * 0.15 +
+            abstraction_level * 0.15 +
+            (negation_score + comparison_score + multipart_score + 
+             calculation_score + reasoning_score) * 0.5 / 1.5  # Normalize boolean scores
+        )
+        
+        return min(1.0, cognitive_complexity)
+    
+    def estimate_difficulty(
+        self,
+        text: str,
+        topics: Optional[List[ExtractedTopic]] = None
+    ) -> Tuple[DifficultyLevel, float, ComplexityMetrics]:
+        """
+        Estimate question difficulty based on complexity analysis.
+        
+        Args:
+            text: Question text to analyze
+            topics: Optional pre-extracted topics
+            
+        Returns:
+            Tuple of (difficulty_level, difficulty_score, complexity_metrics)
+        """
+        # Analyze complexity
+        metrics = self.analyze_complexity(text)
+        
+        # Extract topics if not provided
+        if topics is None:
+            topics = self.extract_topics(text)
+        
+        # Topic-based difficulty adjustment
+        topic_difficulty_boost = 0.0
+        if topics:
+            # Some topics are inherently more difficult
+            difficult_topics = {'physics', 'chemistry', 'mathematics', 'technology'}
+            topic_names = {t.topic_name for t in topics}
+            
+            if topic_names & difficult_topics:
+                topic_difficulty_boost = 0.1
+        
+        # Calculate final difficulty score
+        base_score = metrics.overall_complexity
+        difficulty_score = min(1.0, base_score + topic_difficulty_boost)
+        
+        # Adjust for specific patterns
+        if metrics.requires_calculation:
+            difficulty_score = max(0.5, difficulty_score)  # Calculations are at least medium
+        
+        if metrics.requires_reasoning:
+            difficulty_score = max(0.4, difficulty_score)  # Reasoning is at least medium-low
+        
+        # Map to difficulty level
+        if difficulty_score < 0.25:
+            level = DifficultyLevel.EASY
+        elif difficulty_score < 0.5:
+            level = DifficultyLevel.MEDIUM
+        elif difficulty_score < 0.75:
+            level = DifficultyLevel.HARD
+        else:
+            level = DifficultyLevel.EXPERT
+        
+        logfire.info(
+            "Difficulty estimated",
+            text_preview=text[:50],
+            difficulty_level=level.value,
+            difficulty_score=difficulty_score
+        )
+        
+        return level, difficulty_score, metrics
+    
+    def classify_question_type(self, text: str) -> Dict[str, bool]:
+        """
+        Classify the type of question being asked.
+        
+        Args:
+            text: Question text
+            
+        Returns:
+            Dictionary of question type indicators
+        """
+        text_lower = text.lower()
+        
+        return {
+            'factual': any(q in text_lower for q in ['what', 'when', 'where', 'who']),
+            'explanatory': any(q in text_lower for q in ['why', 'how', 'explain']),
+            'computational': any(q in text_lower for q in ['calculate', 'compute', 'solve']),
+            'comparative': any(q in text_lower for q in ['compare', 'difference', 'similarity']),
+            'evaluative': any(q in text_lower for q in ['evaluate', 'assess', 'judge']),
+            'hypothetical': any(q in text_lower for q in ['if', 'would', 'suppose']),
+            'definitional': any(q in text_lower for q in ['define', 'what is', 'meaning']),
+            'procedural': any(q in text_lower for q in ['how to', 'steps', 'process']),
+            'analytical': any(q in text_lower for q in ['analyze', 'examine', 'investigate']),
+            'yes_no': text.strip().startswith(('is', 'are', 'do', 'does', 'can', 'will'))
+        }
 
 
 # Global instance for convenience
