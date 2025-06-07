@@ -7,6 +7,7 @@ and relationships from natural language questions and answers.
 
 from __future__ import annotations
 
+import asyncio
 import re
 from collections import Counter
 from datetime import datetime
@@ -1348,5 +1349,522 @@ class EntityExtractor:
         }
 
 
+# Sub-task 3.5: Async NLP integration points
+class NLPModel(BaseModel):
+    """Base class for NLP model integration."""
+    
+    model_name: str = Field(..., description="Name/identifier of the NLP model")
+    model_type: str = Field(..., description="Type of model (e.g., 'embedding', 'ner', 'classification')")
+    is_loaded: bool = Field(default=False, description="Whether the model is loaded")
+    config: Dict[str, Any] = Field(default_factory=dict, description="Model configuration")
+    
+    async def load(self) -> None:
+        """Load the NLP model asynchronously."""
+        raise NotImplementedError("Subclasses must implement load()")
+    
+    async def predict(self, text: str) -> Any:
+        """Make predictions on text."""
+        raise NotImplementedError("Subclasses must implement predict()")
+
+
+class TopicExtractionModel(NLPModel):
+    """Placeholder for advanced topic extraction using NLP models."""
+    
+    def __init__(self):
+        super().__init__(
+            model_name="topic_extraction_placeholder",
+            model_type="classification"
+        )
+    
+    async def load(self) -> None:
+        """Load topic extraction model (placeholder)."""
+        # In production, this would load a model like:
+        # - BERT-based topic classifier
+        # - LDA topic model
+        # - Custom embedding model
+        self.is_loaded = True
+        logfire.info("Topic extraction model loaded (placeholder)")
+    
+    async def predict(self, text: str) -> List[Tuple[str, float]]:
+        """
+        Predict topics from text.
+        
+        Returns:
+            List of (topic_name, confidence) tuples
+        """
+        # Placeholder: return empty list
+        # In production, this would use the loaded model
+        return []
+
+
+class DifficultyEstimationModel(NLPModel):
+    """Placeholder for ML-based difficulty estimation."""
+    
+    def __init__(self):
+        super().__init__(
+            model_name="difficulty_estimation_placeholder",
+            model_type="regression"
+        )
+    
+    async def load(self) -> None:
+        """Load difficulty estimation model (placeholder)."""
+        # In production, this would load:
+        # - Readability models
+        # - Complexity prediction models
+        # - Fine-tuned language models
+        self.is_loaded = True
+        logfire.info("Difficulty estimation model loaded (placeholder)")
+    
+    async def predict(self, text: str) -> float:
+        """
+        Predict difficulty score from text.
+        
+        Returns:
+            Difficulty score (0-1)
+        """
+        # Placeholder: return medium difficulty
+        return 0.5
+
+
+class AnswerSimilarityModel(NLPModel):
+    """Placeholder for semantic similarity matching."""
+    
+    def __init__(self):
+        super().__init__(
+            model_name="answer_similarity_placeholder",
+            model_type="embedding"
+        )
+        self.embeddings_cache: Dict[str, Any] = {}
+    
+    async def load(self) -> None:
+        """Load similarity model (placeholder)."""
+        # In production, this would load:
+        # - Sentence transformers
+        # - Word2Vec/GloVe models
+        # - Custom embedding models
+        self.is_loaded = True
+        logfire.info("Answer similarity model loaded (placeholder)")
+    
+    async def encode(self, texts: List[str]) -> Any:
+        """
+        Encode texts to embeddings.
+        
+        Args:
+            texts: List of texts to encode
+            
+        Returns:
+            Embeddings (placeholder returns None)
+        """
+        # Placeholder implementation
+        for text in texts:
+            if text not in self.embeddings_cache:
+                self.embeddings_cache[text] = None
+        return None
+    
+    async def similarity(self, text1: str, text2: str) -> float:
+        """
+        Calculate semantic similarity between texts.
+        
+        Returns:
+            Similarity score (0-1)
+        """
+        # Placeholder: return basic string similarity
+        return 0.5
+
+
+class AsyncEntityExtractor(EntityExtractor):
+    """
+    Enhanced entity extractor with async NLP model support.
+    
+    This class extends EntityExtractor to provide async methods that can
+    leverage NLP models when available, falling back to keyword-based
+    extraction when models are not loaded.
+    """
+    
+    def __init__(
+        self,
+        custom_topics: Optional[List[TopicKeywords]] = None,
+        enable_nlp: bool = False
+    ):
+        """
+        Initialize async entity extractor.
+        
+        Args:
+            custom_topics: Custom topic definitions
+            enable_nlp: Whether to enable NLP model integration
+        """
+        super().__init__(custom_topics)
+        self.enable_nlp = enable_nlp
+        
+        # Initialize NLP models (not loaded by default)
+        self.topic_model = TopicExtractionModel()
+        self.difficulty_model = DifficultyEstimationModel()
+        self.similarity_model = AnswerSimilarityModel()
+        
+        self._models_loaded = False
+    
+    async def load_nlp_models(self) -> None:
+        """Load all NLP models asynchronously."""
+        if not self.enable_nlp:
+            logfire.warning("NLP models not enabled")
+            return
+        
+        with logfire.span("async_extractor.load_nlp_models") as span:
+            try:
+                # Load models in parallel
+                await asyncio.gather(
+                    self.topic_model.load(),
+                    self.difficulty_model.load(),
+                    self.similarity_model.load()
+                )
+                self._models_loaded = True
+                span.set_attribute("models_loaded", True)
+                logfire.info("All NLP models loaded successfully")
+            except Exception as e:
+                span.set_attribute("error", str(e))
+                logfire.error("Failed to load NLP models", error=str(e))
+                self._models_loaded = False
+    
+    async def extract_topics_async(
+        self,
+        text: str,
+        min_confidence: float = 0.3,
+        max_topics: int = 5,
+        use_nlp: bool = True
+    ) -> List[ExtractedTopic]:
+        """
+        Extract topics asynchronously with optional NLP enhancement.
+        
+        Args:
+            text: Text to extract topics from
+            min_confidence: Minimum confidence threshold
+            max_topics: Maximum topics to return
+            use_nlp: Whether to use NLP models if available
+            
+        Returns:
+            List of extracted topics
+        """
+        with logfire.span("async_extractor.extract_topics") as span:
+            span.set_attribute("text_length", len(text))
+            span.set_attribute("use_nlp", use_nlp and self._models_loaded)
+            
+            # Start with keyword-based extraction
+            keyword_topics = await asyncio.to_thread(
+                self.extract_topics,
+                text,
+                min_confidence,
+                max_topics
+            )
+            
+            # Enhance with NLP if available
+            if use_nlp and self._models_loaded and self.topic_model.is_loaded:
+                try:
+                    # Get NLP predictions
+                    nlp_predictions = await self.topic_model.predict(text)
+                    
+                    # Merge results
+                    topic_scores = {t.topic_name: t.confidence for t in keyword_topics}
+                    
+                    for topic_name, nlp_confidence in nlp_predictions:
+                        if topic_name in topic_scores:
+                            # Average scores if topic found by both methods
+                            topic_scores[topic_name] = (
+                                topic_scores[topic_name] + nlp_confidence
+                            ) / 2
+                        else:
+                            # Add new topic from NLP
+                            topic_scores[topic_name] = nlp_confidence
+                    
+                    # Convert back to ExtractedTopic objects
+                    merged_topics = [
+                        ExtractedTopic(
+                            topic_name=name,
+                            confidence=score,
+                            match_type="hybrid"
+                        )
+                        for name, score in topic_scores.items()
+                        if score >= min_confidence
+                    ]
+                    
+                    # Sort and limit
+                    merged_topics.sort(key=lambda x: x.confidence, reverse=True)
+                    return merged_topics[:max_topics]
+                    
+                except Exception as e:
+                    logfire.warning("NLP topic extraction failed", error=str(e))
+                    # Fall back to keyword results
+            
+            return keyword_topics
+    
+    async def estimate_difficulty_async(
+        self,
+        text: str,
+        topics: Optional[List[ExtractedTopic]] = None,
+        use_nlp: bool = True
+    ) -> Tuple[DifficultyLevel, float, ComplexityMetrics]:
+        """
+        Estimate difficulty asynchronously with optional NLP enhancement.
+        
+        Args:
+            text: Question text
+            topics: Pre-extracted topics
+            use_nlp: Whether to use NLP models if available
+            
+        Returns:
+            Tuple of (level, score, metrics)
+        """
+        with logfire.span("async_extractor.estimate_difficulty") as span:
+            span.set_attribute("use_nlp", use_nlp and self._models_loaded)
+            
+            # Get keyword-based estimation
+            level, score, metrics = await asyncio.to_thread(
+                self.estimate_difficulty,
+                text,
+                topics
+            )
+            
+            # Enhance with NLP if available
+            if use_nlp and self._models_loaded and self.difficulty_model.is_loaded:
+                try:
+                    # Get NLP difficulty prediction
+                    nlp_score = await self.difficulty_model.predict(text)
+                    
+                    # Combine scores (weighted average)
+                    # Give more weight to metrics-based score as it's more explainable
+                    combined_score = (score * 0.6 + nlp_score * 0.4)
+                    
+                    # Update level based on combined score
+                    combined_level = DifficultyLevel.from_score(combined_score)
+                    
+                    span.set_attribute("nlp_score", nlp_score)
+                    span.set_attribute("combined_score", combined_score)
+                    
+                    return combined_level, combined_score, metrics
+                    
+                except Exception as e:
+                    logfire.warning("NLP difficulty estimation failed", error=str(e))
+            
+            return level, score, metrics
+    
+    async def classify_answer_async(
+        self,
+        answer: str,
+        expected_patterns: List[AnswerPattern],
+        question_type: Optional[Dict[str, bool]] = None,
+        use_nlp: bool = True
+    ) -> AnswerEvaluation:
+        """
+        Classify answer asynchronously with optional semantic similarity.
+        
+        Args:
+            answer: User's answer
+            expected_patterns: Expected answer patterns
+            question_type: Question type info
+            use_nlp: Whether to use NLP models if available
+            
+        Returns:
+            AnswerEvaluation with enhanced similarity matching
+        """
+        with logfire.span("async_extractor.classify_answer") as span:
+            span.set_attribute("use_nlp", use_nlp and self._models_loaded)
+            
+            # Get keyword-based classification
+            evaluation = await asyncio.to_thread(
+                self.answer_classifier.classify_answer,
+                answer,
+                expected_patterns,
+                question_type
+            )
+            
+            # Enhance with semantic similarity if available
+            if (use_nlp and self._models_loaded and 
+                self.similarity_model.is_loaded and 
+                evaluation.status != AnswerStatus.CORRECT):
+                
+                try:
+                    # Check semantic similarity for fuzzy patterns
+                    for pattern in expected_patterns:
+                        if pattern.pattern_type == 'fuzzy':
+                            for expected in pattern.expected_values:
+                                # Get semantic similarity
+                                sem_score = await self.similarity_model.similarity(
+                                    answer,
+                                    expected
+                                )
+                                
+                                # If high semantic similarity, upgrade evaluation
+                                if sem_score > 0.8 and evaluation.status == AnswerStatus.INCORRECT:
+                                    evaluation.status = AnswerStatus.PARTIAL
+                                    evaluation.score = max(evaluation.score, sem_score * 0.7)
+                                    evaluation.feedback = "Your answer is semantically similar to the expected response."
+                                    evaluation.matched_patterns.append(f"semantic:{expected}")
+                                    
+                                    span.set_attribute("semantic_match", True)
+                                    span.set_attribute("semantic_score", sem_score)
+                                    break
+                                    
+                except Exception as e:
+                    logfire.warning("Semantic similarity check failed", error=str(e))
+            
+            return evaluation
+    
+    async def process_qa_async(
+        self,
+        question_text: str,
+        answer_text: str,
+        expected_answers: Optional[List[str]] = None,
+        user_id: str = "anonymous",
+        session_id: str = "default"
+    ) -> Dict[str, Any]:
+        """
+        Process complete Q&A interaction asynchronously.
+        
+        Args:
+            question_text: Question text
+            answer_text: User's answer
+            expected_answers: Expected correct answers
+            user_id: User identifier
+            session_id: Session identifier
+            
+        Returns:
+            Dictionary with extracted entities and evaluation
+        """
+        with logfire.span("async_extractor.process_qa") as span:
+            # Process in parallel where possible
+            tasks = []
+            
+            # Extract topics from question
+            topics_task = asyncio.create_task(
+                self.extract_topics_async(question_text)
+            )
+            tasks.append(topics_task)
+            
+            # Estimate difficulty
+            difficulty_task = asyncio.create_task(
+                self.estimate_difficulty_async(question_text)
+            )
+            tasks.append(difficulty_task)
+            
+            # Wait for parallel tasks
+            topics = await topics_task
+            difficulty_level, difficulty_score, metrics = await difficulty_task
+            
+            # Create question entity
+            question_entity = await asyncio.to_thread(
+                self.extract_entities_from_question,
+                question_text,
+                f"q_async_{hash(question_text)}"
+            )
+            question_entity.difficulty = difficulty_level
+            question_entity.topics = [t.topic_name for t in topics]
+            
+            # Create answer patterns if expected answers provided
+            if expected_answers:
+                patterns = await asyncio.to_thread(
+                    self.answer_classifier.create_answer_patterns,
+                    expected_answers,
+                    self.classify_question_type(question_text)
+                )
+                
+                # Evaluate answer
+                evaluation = await self.classify_answer_async(
+                    answer_text,
+                    patterns
+                )
+            else:
+                evaluation = AnswerEvaluation(
+                    status=AnswerStatus.UNEVALUATED,
+                    confidence=0.0,
+                    feedback="No expected answers provided",
+                    score=0.0
+                )
+            
+            # Create answer entity
+            answer_entity = AnswerEntity(
+                question_id=question_entity.id,
+                user_id=user_id,
+                session_id=session_id,
+                content=answer_text,
+                status=evaluation.status,
+                confidence_score=evaluation.confidence,
+                response_time_seconds=1.0,  # Would be tracked in practice
+                feedback=evaluation.feedback
+            )
+            
+            return {
+                'question': question_entity,
+                'answer': answer_entity,
+                'topics': topics,
+                'difficulty': {
+                    'level': difficulty_level,
+                    'score': difficulty_score,
+                    'metrics': metrics
+                },
+                'evaluation': evaluation
+            }
+
+
+# Enhanced extraction pipeline with async support
+class AsyncExtractionPipeline(ExtractionPipeline):
+    """Extraction pipeline with async NLP support."""
+    
+    def __init__(
+        self,
+        extractor: Optional[AsyncEntityExtractor] = None,
+        max_workers: int = 4,
+        enable_nlp: bool = False
+    ):
+        """
+        Initialize async extraction pipeline.
+        
+        Args:
+            extractor: Async entity extractor instance
+            max_workers: Maximum parallel workers
+            enable_nlp: Whether to enable NLP models
+        """
+        self.async_extractor = extractor or AsyncEntityExtractor(enable_nlp=enable_nlp)
+        super().__init__(self.async_extractor, max_workers, use_async=True)
+        self.nlp_enabled = enable_nlp
+    
+    async def initialize(self):
+        """Initialize the pipeline and load NLP models if enabled."""
+        if self.nlp_enabled:
+            await self.async_extractor.load_nlp_models()
+    
+    async def extract_with_nlp(
+        self,
+        texts: List[str],
+        batch_size: int = 10
+    ) -> List[Dict[str, Any]]:
+        """
+        Extract entities from texts using NLP models.
+        
+        Args:
+            texts: List of texts to process
+            batch_size: Processing batch size
+            
+        Returns:
+            List of extraction results
+        """
+        results = []
+        
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+            
+            # Process batch in parallel
+            batch_tasks = [
+                self.async_extractor.extract_topics_async(text)
+                for text in batch
+            ]
+            
+            batch_results = await asyncio.gather(*batch_tasks)
+            results.extend(batch_results)
+        
+        return results
+
+
 # Global instance for convenience
 default_extractor = EntityExtractor()
+
+# Async extractor instance (not initialized by default)
+async_extractor = AsyncEntityExtractor(enable_nlp=False)
