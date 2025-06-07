@@ -1,0 +1,144 @@
+name: Phase Sub-task
+description: Create a sub-task for an implementation phase
+title: "Phase X - X.X: "
+labels: ["enhancement", "subtask"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template to create sub-tasks for implementation phases.
+        Follow the naming convention: "Phase X - X.X: Task Description"
+
+  - type: input
+    id: phase_number
+    attributes:
+      label: Phase Number
+      description: "Which phase is this task part of? (1-10)"
+      placeholder: "4"
+    validations:
+      required: true
+
+  - type: input
+    id: subtask_number
+    attributes:
+      label: Sub-task Number
+      description: "Sub-task identifier (e.g., 4.1, 4.2)"
+      placeholder: "4.1"
+    validations:
+      required: true
+
+  - type: input
+    id: parent_issue
+    attributes:
+      label: Parent Phase Issue
+      description: "Link to the parent phase issue"
+      placeholder: "#30"
+    validations:
+      required: true
+
+  - type: textarea
+    id: task_description
+    attributes:
+      label: Task Description
+      description: Clear description of what needs to be implemented
+      placeholder: |
+        Implement connection manager with retry logic for Neo4j connections.
+        This includes automatic reconnection, exponential backoff, and connection pooling.
+    validations:
+      required: true
+
+  - type: textarea
+    id: implementation_details
+    attributes:
+      label: Implementation Details
+      description: Technical details of the implementation
+      placeholder: |
+        - Create `Neo4jConnectionManager` class
+        - Implement retry decorator with exponential backoff
+        - Add connection pool support
+        - Include metrics collection
+        - Support both sync and async operations
+    validations:
+      required: true
+
+  - type: textarea
+    id: files_affected
+    attributes:
+      label: Files to Create/Modify
+      description: List files that will be created or modified
+      placeholder: |
+        - Create: `graphiti_connection.py`
+        - Create: `tests/test_graphiti_connection.py`
+        - Modify: `graphiti_config.py` (add connection settings)
+      value: |
+        - Create: 
+        - Modify: 
+    validations:
+      required: true
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies
+      description: Other tasks or requirements that must be completed first
+      placeholder: |
+        - Requires #22 (environment configuration) to be completed
+        - Needs Neo4j Python driver installed
+
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Acceptance Criteria
+      description: Definition of done for this sub-task
+      value: |
+        - [ ] Implementation complete
+        - [ ] Unit tests written and passing
+        - [ ] Documentation updated
+        - [ ] Example usage provided
+        - [ ] Code reviewed
+        - [ ] Integrated with main application
+    validations:
+      required: true
+
+  - type: textarea
+    id: testing_approach
+    attributes:
+      label: Testing Approach
+      description: How will this be tested?
+      placeholder: |
+        - Unit tests with mocked Neo4j connections
+        - Integration tests with test database
+        - Error scenario testing (connection failures, timeouts)
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: Priority level for this sub-task
+      options:
+        - High - Critical path item
+        - Medium - Important but not blocking
+        - Low - Nice to have
+    validations:
+      required: true
+
+  - type: input
+    id: estimated_effort
+    attributes:
+      label: Estimated Effort
+      description: Rough estimate of time needed
+      placeholder: "2-3 hours"
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission Checklist
+      options:
+        - label: I have verified this sub-task aligns with the parent phase objectives
+          required: true
+        - label: I have checked for dependencies on other sub-tasks
+          required: true
+        - label: I have included clear acceptance criteria
+          required: true
