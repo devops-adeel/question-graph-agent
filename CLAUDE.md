@@ -42,6 +42,142 @@ uv run -m question_graph cli [answer]
 
 The application requires Python with `uv` package manager and OpenAI API access. State is persisted in `question_graph.json` for the CLI mode, allowing sessions to be resumed.
 
+## Project Guidelines and Standards
+
+### Development Workflow
+
+1. **Issue Creation**: Use appropriate GitHub issue templates
+   - Feature enhancements for new functionality
+   - Phase sub-tasks for implementation work
+   - Bug reports for issues
+   - Testing tasks for coverage improvements
+   - Documentation updates
+
+2. **Branch Strategy**
+   - Branch from latest `main`
+   - Use descriptive branch names:
+     - `feat/description` for features
+     - `fix/description` for bugs
+     - `docs/description` for documentation
+     - `refactor/description` for refactoring
+     - `test/description` for tests
+
+3. **Commit Standards**: Follow Conventional Commits
+   ```bash
+   feat: add Neo4j connection manager
+   fix: handle connection timeout error
+   docs: update configuration guide
+   test: add entity extraction tests
+   ```
+
+4. **Pull Request Process**
+   - Use PR template with all sections filled
+   - Link related issues with "Closes #XX"
+   - Include comprehensive test coverage
+   - Update documentation as needed
+   - Ensure all quality checks pass
+
+### Code Quality Standards
+
+1. **Formatting and Linting**
+   ```bash
+   black .                 # Format code (line-length: 100)
+   isort .                 # Sort imports
+   mypy .                  # Type checking
+   ruff check .            # Fast linting
+   flake8                  # Additional linting
+   pytest -v --cov=.       # Run tests with coverage
+   ```
+
+2. **Type Safety**
+   - Use type hints for all functions
+   - Leverage Pydantic models for validation
+   - Define custom validators when needed
+
+3. **Documentation**
+   - Comprehensive docstrings for all public APIs
+   - Include usage examples in docstrings
+   - Update CLAUDE.md for architectural changes
+   - Maintain README.md accuracy
+
+4. **Testing Requirements**
+   - Target >90% test coverage
+   - Include unit and integration tests
+   - Test edge cases and error scenarios
+   - Use pytest fixtures for test data
+
+### Project Structure
+
+```
+question-graph-agent/
+├── Core Application
+│   └── question_graph.py          # Main application
+├── Graphiti Integration
+│   ├── graphiti_entities.py       # Entity models
+│   ├── graphiti_relationships.py  # Relationship models
+│   ├── entity_extraction.py       # Extraction logic
+│   ├── extraction_pipeline.py     # Batch processing
+│   ├── extraction_errors.py       # Error handling
+│   ├── graphiti_config.py         # Configuration
+│   └── graphiti_connection.py     # Connection management
+├── Configuration
+│   ├── .env.example              # Environment template
+│   ├── pyproject.toml            # Project configuration
+│   └── requirements*.txt         # Dependencies
+├── Documentation
+│   ├── README.md                 # Project overview
+│   ├── CLAUDE.md                 # This file
+│   ├── CONTRIBUTING.md           # Contribution guide
+│   └── docs/                     # Additional docs
+├── Tests
+│   └── tests/                    # Test suite
+└── GitHub
+    └── .github/                  # Templates and workflows
+```
+
+### Integration Points
+
+1. **Neo4j Database**
+   - Connection via `graphiti_connection.py`
+   - Configuration in environment variables
+   - Retry logic for resilience
+
+2. **Graphiti Framework**
+   - Entity and relationship persistence
+   - Temporal knowledge tracking
+   - Query capabilities
+
+3. **AI Services**
+   - OpenAI for question generation
+   - Groq for structured outputs
+   - Pydantic AI for agent framework
+
+### Best Practices
+
+1. **Error Handling**
+   - Use custom exceptions for clarity
+   - Implement retry logic for external services
+   - Provide meaningful error messages
+   - Include fallback strategies
+
+2. **Performance**
+   - Use async operations where beneficial
+   - Implement connection pooling
+   - Add caching for expensive operations
+   - Monitor performance metrics
+
+3. **Security**
+   - Never commit sensitive data
+   - Use environment variables for secrets
+   - Validate all user inputs
+   - Follow secure coding practices
+
+4. **Maintenance**
+   - Keep dependencies updated
+   - Document breaking changes
+   - Maintain backwards compatibility
+   - Use semantic versioning
+
 ## Graphiti Integration Implementation Plan
 
 ### Overview
@@ -83,20 +219,22 @@ The project is being enhanced with Graphiti integration to add persistent, graph
 - `extraction_pipeline.py`: Batch processing with async support
 - `extraction_errors.py`: Comprehensive error handling framework
 
-#### Phase 4: Graphiti Infrastructure ⏳ PENDING
-- [ ] 4.1: Add Graphiti dependencies to project (create pyproject.toml)
-- [ ] 4.2: Create environment configuration for Neo4j connection
-- [ ] 4.3: Implement connection manager with retry logic
+#### Phase 4: Graphiti Infrastructure ⏳ IN PROGRESS
+- [x] 4.1: Add Graphiti dependencies to project (create pyproject.toml)
+- [x] 4.2: Create environment configuration for Neo4j connection
+- [x] 4.3: Implement connection manager with retry logic
 - [ ] 4.4: Register custom entity types with Graphiti
 - [ ] 4.5: Create database initialization scripts
 - [ ] 4.6: Add connection health checks and monitoring
 - [ ] 4.7: Implement graceful fallback for when Graphiti is unavailable
 
-#### Phase 5: Episode Building ⏳ PENDING
-- [ ] 5.1: Define episode schema for Q&A interactions
-- [ ] 5.2: Create narrative generator for episode descriptions
-- [ ] 5.3: Implement context extraction from QuestionState
-- [ ] 5.4: Add importance scoring for episodes
+**Status**: Infrastructure foundation completed with configuration management and connection handling. Next: entity registration and database setup.
+
+#### Phase 5: Memory Integration ⏳ PENDING
+- [ ] 5.1: Modify QuestionState to include GraphitiClient instance
+- [ ] 5.2: Create memory storage functions for Q&A pairs
+- [ ] 5.3: Implement memory retrieval for question generation
+- [ ] 5.4: Add memory updates after answer evaluation
 - [ ] 5.5: Create batch episode builder for session summaries
 - [ ] 5.6: Implement episode validation and sanitization
 
@@ -186,5 +324,41 @@ The project is being enhanced with Graphiti integration to add persistent, graph
    - ErrorHandlingConfig for customizable behavior
    - Fallback strategies and recovery mechanisms
 
+#### Phase 4 Modules (In Progress)
+
+6. **Configuration Management** (`graphiti_config.py`)
+   - Neo4jConfig with connection settings and validation
+   - GraphitiConfig with service configuration
+   - ApplicationConfig with feature flags and paths
+   - RuntimeConfig combining all configurations
+
+7. **Connection Management** (`graphiti_connection.py`)
+   - Neo4jConnectionManager with retry logic
+   - GraphitiConnectionManager for HTTP services
+   - ConnectionPool for efficient resource usage
+   - Metrics tracking and state monitoring
+
+8. **Project Dependencies** (`pyproject.toml`)
+   - Modern Python packaging configuration
+   - Development tool settings (black, mypy, pytest)
+   - Optional dependency groups (dev, nlp, monitoring)
+
+### GitHub Integration
+
+#### Issue Templates
+The project uses specialized GitHub issue templates for:
+- Feature enhancements with phase integration
+- Phase sub-tasks following numbered convention
+- Bug reports with reproduction steps
+- Testing tasks for coverage improvements
+- Documentation updates
+
+#### Pull Request Template
+Comprehensive PR template ensuring:
+- Clear summary and issue linking
+- Testing and documentation updates
+- Breaking change identification
+- Performance and security considerations
+
 ### Next Steps
-Begin Phase 4 (Graphiti Infrastructure) to integrate the completed entity and relationship models with the actual Graphiti framework for persistent graph storage.
+Continue Phase 4 by implementing entity registration with Graphiti and creating database initialization scripts.
