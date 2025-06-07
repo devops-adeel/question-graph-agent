@@ -17,6 +17,9 @@ help:
 	@echo "  make db-status     Check database status"
 	@echo "  make db-reset      Reset and reinitialize database"
 	@echo "  make db-setup      Start Neo4j and initialize"
+	@echo "  make health-check  Check system health"
+	@echo "  make health-monitor Monitor health continuously"
+	@echo "  make health-export Export health report"
 
 # Installation targets
 install:
@@ -45,7 +48,7 @@ format:
 	ruff check --fix .
 
 type-check:
-	mypy question_graph.py graphiti_entities.py graphiti_relationships.py entity_extraction.py
+	mypy question_graph.py graphiti_entities.py graphiti_relationships.py entity_extraction.py graphiti_health.py
 
 # Cleaning
 clean:
@@ -100,6 +103,31 @@ db-setup: docker-neo4j
 	@echo "Waiting for Neo4j to start..."
 	@sleep 10
 	python scripts/init_database.py init
+
+# Health monitoring commands
+health-check:
+	python scripts/health_check.py check
+
+health-check-neo4j:
+	python scripts/health_check.py check neo4j
+
+health-check-graphiti:
+	python scripts/health_check.py check graphiti
+
+health-monitor:
+	python scripts/health_check.py monitor --interval 30 --alert
+
+health-monitor-verbose:
+	python scripts/health_check.py monitor --interval 10 --alert --verbose
+
+health-export:
+	python scripts/health_check.py export -o health_report.json
+
+health-export-text:
+	python scripts/health_check.py export -o health_report.txt --format text
+
+health-status:
+	python scripts/health_check.py status
 
 # Development workflow
 dev: install-dev format type-check test
