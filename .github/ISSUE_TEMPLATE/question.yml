@@ -1,0 +1,74 @@
+name: Question
+description: Ask a question about the project (consider using Discussions instead)
+title: "[QUESTION] "
+labels: ["question"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ⚠️ **Consider using [GitHub Discussions](https://github.com/devops-adeel/question-graph-agent/discussions) for questions!**
+        
+        Issues are primarily for tracking bugs and feature requests. For general questions, 
+        discussions are usually more appropriate.
+
+  - type: dropdown
+    id: question_type
+    attributes:
+      label: Question Category
+      description: What is your question about?
+      options:
+        - How to use a feature
+        - Implementation details
+        - Architecture/Design decisions
+        - Configuration
+        - Integration with other tools
+        - Performance optimization
+        - Best practices
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your Question
+      description: Ask your question with as much context as possible
+      placeholder: |
+        How do I configure the Neo4j connection pool size for high-throughput scenarios?
+        I'm seeing connection timeouts when running concurrent operations...
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Provide any relevant context or background
+      placeholder: |
+        - What are you trying to achieve?
+        - What have you already tried?
+        - Any relevant code snippets or configuration
+
+  - type: textarea
+    id: research
+    attributes:
+      label: What I've Tried
+      description: What research or attempts have you made?
+      placeholder: |
+        - Checked documentation in docs/CONNECTION_MANAGER.md
+        - Searched existing issues for "connection pool"
+        - Tried increasing MAX_CONNECTION_POOL_SIZE to 100
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission Checklist
+      options:
+        - label: I have searched existing issues and discussions
+          required: true
+        - label: I have checked the documentation
+          required: true
+        - label: I have considered if this should be a Discussion instead
+          required: true

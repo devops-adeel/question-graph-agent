@@ -1,0 +1,128 @@
+name: Feature Enhancement
+description: Propose a new feature or enhancement to existing functionality
+title: "[FEATURE] "
+labels: ["enhancement"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for proposing a new feature! Please provide as much detail as possible.
+
+  - type: dropdown
+    id: phase
+    attributes:
+      label: Implementation Phase
+      description: Which phase does this feature belong to?
+      options:
+        - Phase 1 - Core Entity Models
+        - Phase 2 - Relationship Models
+        - Phase 3 - Entity Extraction
+        - Phase 4 - Graphiti Infrastructure
+        - Phase 5 - Memory Integration
+        - Phase 6 - Temporal Tracking
+        - Phase 7 - Validation & Error Handling
+        - Phase 8 - Query Models
+        - Phase 9 - Migration Utilities
+        - Phase 10 - Testing Infrastructure
+        - Other/Not Applicable
+    validations:
+      required: true
+
+  - type: input
+    id: parent_issue
+    attributes:
+      label: Parent Issue (if applicable)
+      description: "Link to parent issue if this is a sub-task (e.g., #30)"
+      placeholder: "#"
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Feature Description
+      description: Provide a clear and concise description of the feature
+      placeholder: |
+        Describe what you want to implement and why it's needed.
+        Include any relevant context or background information.
+    validations:
+      required: true
+
+  - type: textarea
+    id: technical_approach
+    attributes:
+      label: Technical Approach
+      description: Describe how you plan to implement this feature
+      placeholder: |
+        - Key classes/functions to create or modify
+        - Data models or schemas needed
+        - External dependencies
+        - Integration points
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Acceptance Criteria
+      description: Define what "done" looks like for this feature
+      placeholder: |
+        - [ ] Implementation complete with all edge cases handled
+        - [ ] Unit tests written with >90% coverage
+        - [ ] Integration tests passing
+        - [ ] Documentation updated
+        - [ ] Code reviewed and approved
+      value: |
+        - [ ] Implementation complete with all edge cases handled
+        - [ ] Unit tests written with >90% coverage
+        - [ ] Integration tests passing
+        - [ ] Documentation updated
+        - [ ] Code reviewed and approved
+    validations:
+      required: true
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies
+      description: List any dependencies or prerequisites
+      placeholder: |
+        - Requires completion of issue #XX
+        - Needs Neo4j connection configured
+        - Depends on Graphiti API access
+
+  - type: textarea
+    id: api_changes
+    attributes:
+      label: API Changes
+      description: Describe any API changes (new methods, modified signatures, etc.)
+      placeholder: |
+        ```python
+        def new_method(param1: str, param2: int) -> Result:
+            """Method description"""
+            pass
+        ```
+
+  - type: textarea
+    id: example_usage
+    attributes:
+      label: Example Usage
+      description: Provide code examples showing how this feature will be used
+      placeholder: |
+        ```python
+        # Example of using the new feature
+        extractor = EntityExtractor()
+        entities = extractor.extract_from_text("sample text")
+        ```
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission Checklist
+      options:
+        - label: I have searched existing issues to avoid duplicates
+          required: true
+        - label: I have considered backwards compatibility
+          required: false
+        - label: I have identified potential security implications
+          required: false

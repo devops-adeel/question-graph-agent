@@ -1,0 +1,115 @@
+name: Documentation
+description: Suggest improvements or report issues with documentation
+title: "[DOCS] "
+labels: ["documentation"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Help us improve our documentation! Report missing, unclear, or incorrect documentation.
+
+  - type: dropdown
+    id: doc_type
+    attributes:
+      label: Documentation Type
+      description: What type of documentation is this about?
+      options:
+        - API Reference
+        - Usage Guide
+        - Configuration Guide
+        - Architecture/Design Docs
+        - Code Comments
+        - README
+        - Examples
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: current_state
+    attributes:
+      label: Current Documentation State
+      description: What's currently documented (or missing)?
+      placeholder: |
+        The connection manager lacks documentation about retry behavior and configuration options.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_changes
+    attributes:
+      label: Proposed Changes
+      description: What should be added or changed?
+      placeholder: |
+        Add section explaining:
+        - Retry configuration options
+        - Examples of custom retry strategies
+        - Connection pool sizing guidelines
+    validations:
+      required: true
+
+  - type: textarea
+    id: affected_files
+    attributes:
+      label: Affected Files
+      description: Which documentation files need updates?
+      placeholder: |
+        - docs/CONNECTION_MANAGER.md
+        - README.md (add connection section)
+        - graphiti_connection.py (improve docstrings)
+
+  - type: textarea
+    id: example_content
+    attributes:
+      label: Example Content
+      description: Provide example of the documentation you'd like to see
+      placeholder: |
+        ```markdown
+        ## Retry Configuration
+        
+        The connection manager supports configurable retry behavior:
+        
+        - `max_retries`: Maximum number of retry attempts (default: 3)
+        - `retry_delay`: Initial delay between retries in seconds (default: 1.0)
+        - `retry_backoff`: Exponential backoff multiplier (default: 2.0)
+        ```
+      render: markdown
+
+  - type: dropdown
+    id: audience
+    attributes:
+      label: Target Audience
+      description: Who is this documentation for?
+      options:
+        - Users (API consumers)
+        - Contributors (developers)
+        - Administrators (deployment/ops)
+        - All audiences
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: improvements
+    attributes:
+      label: Documentation Improvements
+      description: What aspects need improvement?
+      options:
+        - label: Missing information
+        - label: Incorrect information
+        - label: Unclear explanations
+        - label: Missing examples
+        - label: Outdated content
+        - label: Poor organization
+        - label: Missing diagrams/visuals
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission Checklist
+      options:
+        - label: I have checked existing documentation
+          required: true
+        - label: I have searched for related documentation issues
+          required: true

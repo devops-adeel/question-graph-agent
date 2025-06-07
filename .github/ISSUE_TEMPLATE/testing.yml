@@ -1,0 +1,122 @@
+name: Testing Task
+description: Create or improve tests for the project
+title: "[TEST] "
+labels: ["testing"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template to propose new tests or improvements to existing test coverage.
+
+  - type: dropdown
+    id: test_type
+    attributes:
+      label: Test Type
+      description: What type of testing is this?
+      options:
+        - Unit Tests
+        - Integration Tests
+        - End-to-End Tests
+        - Performance Tests
+        - Load Tests
+        - Security Tests
+        - Property-based Tests
+    validations:
+      required: true
+
+  - type: textarea
+    id: component
+    attributes:
+      label: Component to Test
+      description: Which component or module needs testing?
+      placeholder: |
+        Neo4jConnectionManager class in graphiti_connection.py
+    validations:
+      required: true
+
+  - type: textarea
+    id: test_scenarios
+    attributes:
+      label: Test Scenarios
+      description: List the scenarios that should be tested
+      placeholder: |
+        - Successful connection to Neo4j
+        - Connection retry on ServiceUnavailable error
+        - Maximum retry limit exceeded
+        - Connection pool exhaustion
+        - Concurrent connection requests
+        - Connection timeout handling
+      value: |
+        - 
+        - 
+        - 
+    validations:
+      required: true
+
+  - type: textarea
+    id: current_coverage
+    attributes:
+      label: Current Test Coverage
+      description: What's the current state of test coverage?
+      placeholder: |
+        Currently no tests exist for the connection manager.
+        Related modules have 85% coverage.
+
+  - type: textarea
+    id: test_approach
+    attributes:
+      label: Testing Approach
+      description: How will you approach testing this?
+      placeholder: |
+        - Use pytest with async support
+        - Mock Neo4j driver for unit tests
+        - Use Docker container for integration tests
+        - Create fixtures for common test scenarios
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Test Dependencies
+      description: Any special dependencies or tools needed?
+      placeholder: |
+        - pytest-asyncio for async test support
+        - pytest-mock for mocking
+        - testcontainers for Neo4j container
+
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Acceptance Criteria
+      description: When is this testing task complete?
+      value: |
+        - [ ] All test scenarios implemented
+        - [ ] Tests are passing consistently
+        - [ ] Code coverage > 90%
+        - [ ] Tests run in CI/CD pipeline
+        - [ ] Test documentation updated
+    validations:
+      required: true
+
+  - type: input
+    id: estimated_coverage
+    attributes:
+      label: Target Coverage
+      description: What test coverage percentage are you aiming for?
+      placeholder: "95%"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: test_categories
+    attributes:
+      label: Test Categories
+      description: Which aspects will be tested?
+      options:
+        - label: Happy path scenarios
+        - label: Error handling
+        - label: Edge cases
+        - label: Performance characteristics
+        - label: Security considerations
+        - label: Concurrent operations

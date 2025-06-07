@@ -1,0 +1,154 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+title: "[BUG] "
+labels: ["bug"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! Please provide as much detail as possible to help us reproduce and fix the issue.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of the bug
+      placeholder: |
+        What happened? What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Steps to reproduce the behavior
+      placeholder: |
+        1. Initialize the question graph with...
+        2. Run the command...
+        3. See error...
+      value: |
+        1. 
+        2. 
+        3. 
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What you expected to happen
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened
+    validations:
+      required: true
+
+  - type: textarea
+    id: error_output
+    attributes:
+      label: Error Output
+      description: Include any error messages, stack traces, or logs
+      placeholder: |
+        ```
+        Traceback (most recent call last):
+          File "question_graph.py", line 123, in <module>
+            ...
+        ```
+      render: shell
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected Component
+      description: Which component is affected by this bug?
+      options:
+        - Core Question Graph
+        - Entity Models
+        - Relationship Models
+        - Entity Extraction
+        - Graphiti Integration
+        - Neo4j Connection
+        - Configuration
+        - Testing
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Provide details about your environment
+      placeholder: |
+        - OS: macOS 13.4
+        - Python: 3.11.5
+        - Neo4j: 5.14.0
+        - Graphiti: 0.3.0
+      value: |
+        - OS: 
+        - Python: 
+        - Neo4j: 
+        - Graphiti: 
+        - pydantic: 
+        - pydantic-graph: 
+    validations:
+      required: true
+
+  - type: textarea
+    id: minimal_example
+    attributes:
+      label: Minimal Reproducible Example
+      description: Provide a minimal code example that reproduces the issue
+      placeholder: |
+        ```python
+        from question_graph import QuestionState
+        
+        # Minimal code to reproduce the issue
+        state = QuestionState()
+        # ... code that triggers the bug
+        ```
+      render: python
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: How severe is this bug?
+      options:
+        - Critical - System unusable
+        - High - Major functionality broken
+        - Medium - Minor functionality affected
+        - Low - Cosmetic or minor issue
+    validations:
+      required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: Possible Workaround
+      description: Have you found any workaround for this issue?
+      placeholder: Describe any temporary solution you've found
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission Checklist
+      options:
+        - label: I have searched existing issues to avoid duplicates
+          required: true
+        - label: I have included all error messages and stack traces
+          required: false
+        - label: I have provided a minimal reproducible example
+          required: false
+        - label: I have tested with the latest version
+          required: false

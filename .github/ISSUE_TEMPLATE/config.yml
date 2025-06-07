@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Question or Discussion
+    url: https://github.com/devops-adeel/question-graph-agent/discussions
+    about: Ask questions and discuss ideas with the community
+  - name: View Implementation Roadmap
+    url: https://github.com/devops-adeel/question-graph-agent/issues/1
+    about: See the full Graphiti integration implementation plan
