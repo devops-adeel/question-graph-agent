@@ -13,6 +13,10 @@ help:
 	@echo "  make run-continuous Run in continuous mode"
 	@echo "  make run-cli       Run in CLI mode"
 	@echo "  make docker-neo4j  Start Neo4j in Docker"
+	@echo "  make db-init       Initialize Neo4j database"
+	@echo "  make db-status     Check database status"
+	@echo "  make db-reset      Reset and reinitialize database"
+	@echo "  make db-setup      Start Neo4j and initialize"
 
 # Installation targets
 install:
@@ -81,6 +85,21 @@ docker-stop:
 
 docker-logs:
 	docker logs -f neo4j-graphiti
+
+# Database commands
+db-init:
+	python scripts/init_database.py init
+
+db-reset:
+	python scripts/init_database.py reset --confirm --reinit
+
+db-status:
+	python scripts/init_database.py status
+
+db-setup: docker-neo4j
+	@echo "Waiting for Neo4j to start..."
+	@sleep 10
+	python scripts/init_database.py init
 
 # Development workflow
 dev: install-dev format type-check test
