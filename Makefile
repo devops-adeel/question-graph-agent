@@ -48,7 +48,7 @@ format:
 	ruff check --fix .
 
 type-check:
-	mypy question_graph.py graphiti_entities.py graphiti_relationships.py entity_extraction.py graphiti_health.py
+	mypy question_graph.py graphiti_entities.py graphiti_relationships.py entity_extraction.py graphiti_health.py graphiti_fallback.py graphiti_circuit_breaker.py
 
 # Cleaning
 clean:
