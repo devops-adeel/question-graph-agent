@@ -11,7 +11,8 @@ from typing import Optional, Dict, Any, Union
 from pathlib import Path
 from dataclasses import dataclass, field
 from dotenv import load_dotenv
-from pydantic import BaseSettings, Field, validator, SecretStr
+from pydantic import Field, field_validator, SecretStr
+from pydantic_settings import BaseSettings
 from pydantic.types import conint
 
 
@@ -76,11 +77,12 @@ class Neo4jConfig(BaseSettings):
         description="Connection acquisition timeout in seconds"
     )
     
-    class Config:
-        env_prefix = "NEO4J_"
-        case_sensitive = False
+    model_config = {
+        "env_prefix": "NEO4J_",
+        "case_sensitive": False
+    }
         
-    @validator("uri")
+    @field_validator("uri")
     def validate_uri(cls, v: str) -> str:
         """Validate Neo4j URI format."""
         valid_schemes = ["bolt", "bolt+s", "bolt+ssc", "neo4j", "neo4j+s", "neo4j+ssc"]
@@ -126,9 +128,10 @@ class GraphitiConfig(BaseSettings):
         description="Retry backoff multiplier"
     )
     
-    class Config:
-        env_prefix = "GRAPHITI_"
-        case_sensitive = False
+    model_config = {
+        "env_prefix": "GRAPHITI_",
+        "case_sensitive": False
+    }
 
 
 class ApplicationConfig(BaseSettings):
@@ -189,11 +192,12 @@ class ApplicationConfig(BaseSettings):
         description="Logs directory path"
     )
     
-    class Config:
-        env_prefix = "APP_"
-        case_sensitive = False
+    model_config = {
+        "env_prefix": "APP_",
+        "case_sensitive": False
+    }
         
-    @validator("data_dir", "cache_dir", "log_dir", pre=True)
+    @field_validator("data_dir", "cache_dir", "log_dir", mode="before")
     def create_directories(cls, v: Union[str, Path]) -> Path:
         """Ensure directories exist."""
         path = Path(v)
