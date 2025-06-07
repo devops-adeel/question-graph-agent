@@ -1,495 +1,216 @@
 """
-Database initialization module for Graphiti and Neo4j.
+Database initialization for Graphiti integration.
 
-This module provides initialization scripts for setting up the Neo4j database
-with required indexes, constraints, and initial data for the question-graph agent.
+This module provides initialization functionality for setting up
+the Neo4j database schema and indexes for Graphiti.
 """
 
-import asyncio
 import logging
-from typing import Dict, List, Any, Optional
-from datetime import datetime
+from typing import Optional, List, Dict, Any
 
-from neo4j import AsyncGraphDatabase, AsyncDriver, AsyncSession
-from neo4j.exceptions import (
-    ConstraintError,
-    DatabaseError,
-    Neo4jError,
-)
-
-from graphiti_config import get_config, RuntimeConfig
 from graphiti_connection import Neo4jConnectionManager
-from graphiti_entities import (
-    TopicEntity,
-    DifficultyLevel,
-    EntityFactory,
-)
+from graphiti_config import get_config, RuntimeConfig
 
 
 logger = logging.getLogger(__name__)
 
 
-class DatabaseInitializer:
-    """Handles database initialization for Graphiti integration."""
+class GraphitiInitializer:
+    """Handles database initialization for Graphiti."""
     
-    def __init__(self, config: Optional[RuntimeConfig] = None):
-        """Initialize with configuration.
+    def __init__(self,
+                 connection_manager: Optional[Neo4jConnectionManager] = None,
+                 config: Optional[RuntimeConfig] = None):
+        """Initialize the initializer.
         
         Args:
-            config: Runtime configuration, uses global if not provided
+            connection_manager: Neo4j connection manager
+            config: Runtime configuration
         """
+        self.connection_manager = connection_manager
         self.config = config or get_config()
-        self.connection_manager = Neo4jConnectionManager(self.config)
-        self._initialized = False
     
-    async def initialize_database(self, force: bool = False) -> bool:
-        """Initialize the database with schema and initial data.
+    async def initialize(self) -> bool:
+        """Initialize the database with required schema.
         
-        Args:
-            force: Force re-initialization even if already done
-            
         Returns:
-            True if successful, False otherwise
+            True if successful
         """
-        if self._initialized and not force:
-            logger.info("Database already initialized")
-            return True
-        
         try:
-            logger.info("Starting database initialization...")
+            logger.info("Initializing Graphiti database schema...")
             
-            # Create schema
-            await self._create_indexes()
+            # Create constraints
             await self._create_constraints()
             
-            # Initialize node labels
-            await self._create_node_labels()
+            # Create indexes
+            await self._create_indexes()
             
-            # Create initial data
-            await self._create_initial_topics()
-            await self._create_system_user()
+            # Initialize entity types
+            await self._initialize_entity_types()
             
-            # Verify initialization
-            if await self._verify_initialization():
-                self._initialized = True
-                logger.info("Database initialization completed successfully")
-                return True
-            else:
-                logger.error("Database initialization verification failed")
-                return False
-                
-        except Exception as e:
-            logger.error(f"Database initialization failed: {e}")
-            return False
-    
-    async def _create_indexes(self):
-        """Create database indexes for performance."""
-        logger.info("Creating indexes...")
-        
-        indexes = [
-            # Entity indexes
-            ("Entity", "id"),
-            ("Entity", "entity_type"),
-            ("Entity", "created_at"),
-            ("Entity", "updated_at"),
-            
-            # Specific entity type indexes
-            ("Question", "difficulty"),
-            ("Question", "created_at"),
-            ("Answer", "status"),
-            ("Answer", "user_id"),
-            ("User", "session_id"),
-            ("Topic", "name"),
-            ("Topic", "complexity_score"),
-            
-            # Episode indexes
-            ("Episode", "episode_type"),
-            ("Episode", "timestamp"),
-            ("Episode", "name"),
-            
-            # Relationship indexes
-            ("ANSWERED", "timestamp"),
-            ("REQUIRES_KNOWLEDGE", "relevance_score"),
-            ("HAS_MASTERY", "mastery_score"),
-        ]
-        
-        async with self.connection_manager.async_session() as session:
-            for label, property_name in indexes:
-                query = f"""
-                CREATE INDEX IF NOT EXISTS
-                FOR (n:{label})
-                ON (n.{property_name})
-                """
-                try:
-                    await session.run(query)
-                    logger.debug(f"Created index on {label}.{property_name}")
-                except Exception as e:
-                    logger.warning(f"Failed to create index on {label}.{property_name}: {e}")
-    
-    async def _create_constraints(self):
-        """Create database constraints for data integrity."""
-        logger.info("Creating constraints...")
-        
-        constraints = [
-            # Unique constraints
-            ("Entity", "id", "UNIQUE"),
-            ("User", "id", "UNIQUE"),
-            ("Topic", "name", "UNIQUE"),
-            
-            # Node key constraints (composite uniqueness)
-            ("Answer", ["question_id", "user_id", "timestamp"], "NODE KEY"),
-        ]
-        
-        async with self.connection_manager.async_session() as session:
-            for constraint in constraints:
-                if len(constraint) == 3 and constraint[2] == "UNIQUE":
-                    label, property_name, _ = constraint
-                    query = f"""
-                    CREATE CONSTRAINT IF NOT EXISTS
-                    FOR (n:{label})
-                    REQUIRE n.{property_name} IS UNIQUE
-                    """
-                    try:
-                        await session.run(query)
-                        logger.debug(f"Created unique constraint on {label}.{property_name}")
-                    except Exception as e:
-                        logger.warning(f"Failed to create constraint on {label}.{property_name}: {e}")
-                        
-                elif len(constraint) == 3 and constraint[2] == "NODE KEY":
-                    label, properties, _ = constraint
-                    props_str = ", ".join([f"n.{p}" for p in properties])
-                    constraint_name = f"{label}_{'_'.join(properties)}_key"
-                    query = f"""
-                    CREATE CONSTRAINT {constraint_name} IF NOT EXISTS
-                    FOR (n:{label})
-                    REQUIRE ({props_str}) IS NODE KEY
-                    """
-                    try:
-                        await session.run(query)
-                        logger.debug(f"Created node key constraint on {label} for {properties}")
-                    except Exception as e:
-                        logger.warning(f"Failed to create node key constraint: {e}")
-    
-    async def _create_node_labels(self):
-        """Create initial node labels."""
-        logger.info("Creating node labels...")
-        
-        labels = [
-            "Entity",
-            "Question", 
-            "Answer",
-            "User",
-            "Topic",
-            "Episode",
-            "System",
-        ]
-        
-        async with self.connection_manager.async_session() as session:
-            for label in labels:
-                # Create a temporary node to ensure label exists
-                query = f"""
-                MERGE (n:_Temp_{label} {{id: 'temp'}})
-                SET n:{label}
-                WITH n
-                DELETE n
-                """
-                try:
-                    await session.run(query)
-                    logger.debug(f"Ensured label {label} exists")
-                except Exception as e:
-                    logger.warning(f"Failed to create label {label}: {e}")
-    
-    async def _create_initial_topics(self):
-        """Create initial topic hierarchy."""
-        logger.info("Creating initial topics...")
-        
-        # Define topic hierarchy
-        topics_data = [
-            {
-                "name": "General Knowledge",
-                "complexity": 0.5,
-                "description": "Basic general knowledge questions",
-                "children": [
-                    {"name": "History", "complexity": 0.6},
-                    {"name": "Geography", "complexity": 0.5},
-                    {"name": "Science", "complexity": 0.7},
-                    {"name": "Literature", "complexity": 0.6},
-                    {"name": "Current Events", "complexity": 0.4},
-                ]
-            },
-            {
-                "name": "Mathematics",
-                "complexity": 0.8,
-                "description": "Mathematical concepts and problem solving",
-                "children": [
-                    {"name": "Arithmetic", "complexity": 0.3},
-                    {"name": "Algebra", "complexity": 0.6},
-                    {"name": "Geometry", "complexity": 0.7},
-                    {"name": "Calculus", "complexity": 0.9},
-                    {"name": "Statistics", "complexity": 0.7},
-                ]
-            },
-            {
-                "name": "Technology",
-                "complexity": 0.7,
-                "description": "Computer science and technology topics",
-                "children": [
-                    {"name": "Programming", "complexity": 0.8},
-                    {"name": "AI/ML", "complexity": 0.9},
-                    {"name": "Databases", "complexity": 0.7},
-                    {"name": "Networks", "complexity": 0.6},
-                    {"name": "Security", "complexity": 0.8},
-                ]
-            },
-        ]
-        
-        async with self.connection_manager.async_session() as session:
-            for parent_data in topics_data:
-                # Create parent topic
-                parent_query = """
-                MERGE (t:Topic:Entity {name: $name})
-                SET t.id = coalesce(t.id, randomUUID()),
-                    t.complexity_score = $complexity,
-                    t.description = $description,
-                    t.created_at = coalesce(t.created_at, datetime()),
-                    t.updated_at = datetime(),
-                    t.entity_type = 'topic'
-                RETURN t.id as topic_id
-                """
-                
-                result = await session.run(
-                    parent_query,
-                    name=parent_data["name"],
-                    complexity=parent_data["complexity"],
-                    description=parent_data.get("description", "")
-                )
-                record = await result.single()
-                parent_id = record["topic_id"] if record else None
-                
-                logger.debug(f"Created parent topic: {parent_data['name']}")
-                
-                # Create child topics
-                for child_data in parent_data.get("children", []):
-                    child_query = """
-                    MERGE (t:Topic:Entity {name: $name})
-                    SET t.id = coalesce(t.id, randomUUID()),
-                        t.complexity_score = $complexity,
-                        t.parent_topic = $parent_name,
-                        t.created_at = coalesce(t.created_at, datetime()),
-                        t.updated_at = datetime(),
-                        t.entity_type = 'topic'
-                    WITH t
-                    MATCH (p:Topic {name: $parent_name})
-                    MERGE (t)-[:CHILD_OF]->(p)
-                    RETURN t.id as topic_id
-                    """
-                    
-                    await session.run(
-                        child_query,
-                        name=child_data["name"],
-                        complexity=child_data["complexity"],
-                        parent_name=parent_data["name"]
-                    )
-                    logger.debug(f"Created child topic: {child_data['name']}")
-    
-    async def _create_system_user(self):
-        """Create system user for automated operations."""
-        logger.info("Creating system user...")
-        
-        query = """
-        MERGE (u:User:Entity {id: 'system'})
-        SET u.session_id = 'system',
-            u.total_questions = 0,
-            u.correct_answers = 0,
-            u.average_response_time = 0.0,
-            u.created_at = coalesce(u.created_at, datetime()),
-            u.updated_at = datetime(),
-            u.entity_type = 'person',
-            u.is_system = true
-        RETURN u.id as user_id
-        """
-        
-        async with self.connection_manager.async_session() as session:
-            result = await session.run(query)
-            record = await result.single()
-            if record:
-                logger.debug("Created system user")
-    
-    async def _verify_initialization(self) -> bool:
-        """Verify database initialization was successful."""
-        logger.info("Verifying initialization...")
-        
-        checks = [
-            # Check indexes exist
-            """
-            SHOW INDEXES
-            YIELD name, labelsOrTypes, properties
-            WHERE 'Entity' IN labelsOrTypes AND 'id' IN properties
-            RETURN count(*) as count
-            """,
-            
-            # Check constraints exist
-            """
-            SHOW CONSTRAINTS
-            YIELD name, labelsOrTypes, properties
-            WHERE 'Entity' IN labelsOrTypes
-            RETURN count(*) as count
-            """,
-            
-            # Check topics exist
-            """
-            MATCH (t:Topic)
-            RETURN count(t) as count
-            """,
-            
-            # Check system user exists
-            """
-            MATCH (u:User {id: 'system'})
-            RETURN count(u) as count
-            """,
-        ]
-        
-        async with self.connection_manager.async_session() as session:
-            for i, check_query in enumerate(checks):
-                try:
-                    result = await session.run(check_query)
-                    record = await result.single()
-                    if not record or record["count"] == 0:
-                        logger.error(f"Verification check {i+1} failed")
-                        return False
-                except Exception as e:
-                    logger.error(f"Verification check {i+1} error: {e}")
-                    return False
-        
-        logger.info("All verification checks passed")
-        return True
-    
-    async def reset_database(self, confirm: bool = False) -> bool:
-        """Reset the database (DANGEROUS - deletes all data).
-        
-        Args:
-            confirm: Must be True to actually perform reset
-            
-        Returns:
-            True if successful, False otherwise
-        """
-        if not confirm:
-            logger.warning("Database reset requested but not confirmed")
-            return False
-        
-        logger.warning("RESETTING DATABASE - ALL DATA WILL BE DELETED")
-        
-        try:
-            async with self.connection_manager.async_session() as session:
-                # Delete all nodes and relationships
-                await session.run("MATCH (n) DETACH DELETE n")
-                logger.info("Deleted all nodes and relationships")
-                
-                # Drop constraints
-                constraints_result = await session.run("SHOW CONSTRAINTS")
-                constraints = await constraints_result.data()
-                for constraint in constraints:
-                    constraint_name = constraint.get("name")
-                    if constraint_name:
-                        await session.run(f"DROP CONSTRAINT {constraint_name}")
-                        logger.debug(f"Dropped constraint: {constraint_name}")
-                
-                # Drop indexes
-                indexes_result = await session.run("SHOW INDEXES")
-                indexes = await indexes_result.data()
-                for index in indexes:
-                    index_name = index.get("name")
-                    if index_name and not index_name.startswith("constraint_"):
-                        await session.run(f"DROP INDEX {index_name}")
-                        logger.debug(f"Dropped index: {index_name}")
-            
-            self._initialized = False
-            logger.info("Database reset completed")
+            logger.info("Database initialization complete")
             return True
             
         except Exception as e:
-            logger.error(f"Database reset failed: {e}")
+            logger.error(f"Failed to initialize database: {e}")
             return False
     
-    async def get_initialization_status(self) -> Dict[str, Any]:
-        """Get current initialization status.
+    async def _create_constraints(self) -> None:
+        """Create database constraints."""
+        constraints = [
+            # Unique constraints for entity IDs
+            "CREATE CONSTRAINT IF NOT EXISTS FOR (q:Question) REQUIRE q.id IS UNIQUE",
+            "CREATE CONSTRAINT IF NOT EXISTS FOR (a:Answer) REQUIRE a.id IS UNIQUE",
+            "CREATE CONSTRAINT IF NOT EXISTS FOR (u:User) REQUIRE u.id IS UNIQUE",
+            "CREATE CONSTRAINT IF NOT EXISTS FOR (t:Topic) REQUIRE t.id IS UNIQUE",
+            "CREATE CONSTRAINT IF NOT EXISTS FOR (e:Episode) REQUIRE e.id IS UNIQUE",
+        ]
+        
+        if self.connection_manager:
+            for constraint in constraints:
+                try:
+                    await self.connection_manager.execute_query_async(constraint)
+                    logger.debug(f"Created constraint: {constraint}")
+                except Exception as e:
+                    logger.warning(f"Constraint may already exist: {e}")
+    
+    async def _create_indexes(self) -> None:
+        """Create database indexes for performance."""
+        indexes = [
+            # Indexes for common queries
+            "CREATE INDEX IF NOT EXISTS FOR (q:Question) ON (q.difficulty)",
+            "CREATE INDEX IF NOT EXISTS FOR (q:Question) ON (q.asked_count)",
+            "CREATE INDEX IF NOT EXISTS FOR (a:Answer) ON (a.user_id)",
+            "CREATE INDEX IF NOT EXISTS FOR (a:Answer) ON (a.timestamp)",
+            "CREATE INDEX IF NOT EXISTS FOR (u:User) ON (u.session_id)",
+            "CREATE INDEX IF NOT EXISTS FOR (t:Topic) ON (t.name)",
+            "CREATE INDEX IF NOT EXISTS FOR (e:Episode) ON (e.session_id)",
+            "CREATE INDEX IF NOT EXISTS FOR (e:Episode) ON (e.timestamp)",
+        ]
+        
+        if self.connection_manager:
+            for index in indexes:
+                try:
+                    await self.connection_manager.execute_query_async(index)
+                    logger.debug(f"Created index: {index}")
+                except Exception as e:
+                    logger.warning(f"Index may already exist: {e}")
+    
+    async def _initialize_entity_types(self) -> None:
+        """Initialize entity type nodes."""
+        entity_types = [
+            {
+                "name": "Question",
+                "description": "A question asked to users",
+                "properties": ["content", "difficulty", "topics", "asked_count", "correct_rate"]
+            },
+            {
+                "name": "Answer",
+                "description": "A user's answer to a question",
+                "properties": ["content", "status", "timestamp", "response_time", "confidence_score"]
+            },
+            {
+                "name": "User",
+                "description": "A user of the system",
+                "properties": ["session_id", "total_questions", "correct_answers", "average_response_time"]
+            },
+            {
+                "name": "Topic",
+                "description": "A knowledge topic or subject area",
+                "properties": ["name", "complexity_score", "question_count"]
+            }
+        ]
+        
+        if self.connection_manager:
+            for entity_type in entity_types:
+                query = """
+                MERGE (et:EntityType {name: $name})
+                SET et.description = $description,
+                    et.properties = $properties,
+                    et.created_at = COALESCE(et.created_at, datetime()),
+                    et.updated_at = datetime()
+                """
+                
+                await self.connection_manager.execute_query_async(
+                    query,
+                    entity_type
+                )
+                
+            logger.info(f"Initialized {len(entity_types)} entity types")
+    
+    async def verify_setup(self) -> Dict[str, Any]:
+        """Verify the database setup.
         
         Returns:
-            Dictionary with status information
+            Dictionary with verification results
         """
-        status = {
-            "initialized": self._initialized,
-            "indexes": 0,
-            "constraints": 0,
-            "topics": 0,
-            "users": 0,
-            "episodes": 0,
-            "verified": False,
+        results = {
+            "constraints": [],
+            "indexes": [],
+            "entity_types": [],
+            "node_counts": {}
         }
         
+        if not self.connection_manager:
+            return results
+        
         try:
-            async with self.connection_manager.async_session() as session:
-                # Count indexes
-                result = await session.run("SHOW INDEXES YIELD name RETURN count(*) as count")
-                record = await result.single()
-                status["indexes"] = record["count"] if record else 0
-                
-                # Count constraints
-                result = await session.run("SHOW CONSTRAINTS YIELD name RETURN count(*) as count")
-                record = await result.single()
-                status["constraints"] = record["count"] if record else 0
-                
-                # Count entities
-                for entity_type, key in [("Topic", "topics"), ("User", "users"), ("Episode", "episodes")]:
-                    result = await session.run(f"MATCH (n:{entity_type}) RETURN count(n) as count")
-                    record = await result.single()
-                    status[key] = record["count"] if record else 0
-                
-                # Verify status
-                status["verified"] = await self._verify_initialization()
-                
+            # Check constraints
+            constraint_query = "SHOW CONSTRAINTS"
+            constraints = await self.connection_manager.execute_query_async(constraint_query)
+            results["constraints"] = [c["name"] for c in constraints if c.get("name")]
+            
+            # Check indexes
+            index_query = "SHOW INDEXES"
+            indexes = await self.connection_manager.execute_query_async(index_query)
+            results["indexes"] = [i["name"] for i in indexes if i.get("name")]
+            
+            # Check entity types
+            entity_query = "MATCH (et:EntityType) RETURN et.name as name"
+            entities = await self.connection_manager.execute_query_async(entity_query)
+            results["entity_types"] = [e["name"] for e in entities]
+            
+            # Get node counts
+            for label in ["Question", "Answer", "User", "Topic"]:
+                count_query = f"MATCH (n:{label}) RETURN count(n) as count"
+                result = await self.connection_manager.execute_query_async(count_query)
+                if result:
+                    results["node_counts"][label] = result[0]["count"]
+                else:
+                    results["node_counts"][label] = 0
+            
         except Exception as e:
-            logger.error(f"Failed to get initialization status: {e}")
+            logger.error(f"Failed to verify setup: {e}")
         
-        return status
-
-
-async def initialize_database(config: Optional[RuntimeConfig] = None, force: bool = False) -> bool:
-    """Initialize the database.
+        return results
     
-    Args:
-        config: Runtime configuration
-        force: Force re-initialization
+    async def clear_data(self, confirm: bool = False) -> bool:
+        """Clear all data from the database.
         
-    Returns:
-        True if successful
-    """
-    initializer = DatabaseInitializer(config)
-    return await initializer.initialize_database(force)
-
-
-async def reset_database(config: Optional[RuntimeConfig] = None, confirm: bool = False) -> bool:
-    """Reset the database (requires confirmation).
-    
-    Args:
-        config: Runtime configuration
-        confirm: Must be True to perform reset
+        Args:
+            confirm: Must be True to actually clear data
+            
+        Returns:
+            True if successful
+        """
+        if not confirm:
+            logger.warning("Clear data called without confirmation")
+            return False
         
-    Returns:
-        True if successful
-    """
-    initializer = DatabaseInitializer(config)
-    return await initializer.reset_database(confirm)
-
-
-async def get_database_status(config: Optional[RuntimeConfig] = None) -> Dict[str, Any]:
-    """Get database initialization status.
-    
-    Args:
-        config: Runtime configuration
+        if not self.connection_manager:
+            return False
         
-    Returns:
-        Status dictionary
-    """
-    initializer = DatabaseInitializer(config)
-    return await initializer.get_initialization_status()
+        try:
+            logger.warning("Clearing all data from database...")
+            
+            # Delete all nodes and relationships
+            await self.connection_manager.execute_query_async(
+                "MATCH (n) DETACH DELETE n"
+            )
+            
+            logger.info("All data cleared from database")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to clear data: {e}")
+            return False
