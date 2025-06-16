@@ -100,7 +100,7 @@ class EnhancedAsk(BaseNode[QuestionState]):
                     logger.error(f"Failed to store question in memory: {e}")
                     span.set_attribute('memory_error', str(e))
             
-            return EnhancedAnswer.model_construct(question=result.output)
+            return EnhancedAnswer(question=result.output)
 
 
 class EnhancedAnswer(BaseNode[QuestionState]):
@@ -131,7 +131,7 @@ class EnhancedAnswer(BaseNode[QuestionState]):
             if hasattr(ctx.state, 'last_response_time'):
                 ctx.state.last_response_time = response_time
             
-            return EnhancedEvaluate.model_construct(answer=answer, response_time=response_time)
+            return EnhancedEvaluate(answer=answer, response_time=response_time)
 
 
 class EnhancedEvaluate(BaseNode[QuestionState, None, str]):
@@ -215,7 +215,7 @@ class EnhancedEvaluate(BaseNode[QuestionState, None, str]):
                               question=ctx.state.question, 
                               answer=self.answer, 
                               comment=result.output.comment)
-                return EnhancedReprimand.model_construct(comment=result.output.comment)
+                return EnhancedReprimand(comment=result.output.comment)
 
 
 class EnhancedReprimand(BaseNode[QuestionState]):
@@ -244,7 +244,7 @@ class EnhancedReprimand(BaseNode[QuestionState]):
                                   consecutive_incorrect=ctx.state.consecutive_incorrect)
             
             ctx.state.question = None
-            return EnhancedAsk.model_construct()
+            return EnhancedAsk()
 
 
 def create_enhanced_state(base_state: Optional[QuestionState] = None) -> EnhancedQuestionState:
