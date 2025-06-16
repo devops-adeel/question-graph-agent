@@ -1,0 +1,170 @@
+# OrbStack-optimized Docker Compose configuration
+# Leverages OrbStack's native performance features
+
+services:
+  neo4j:
+    image: neo4j:latest
+    container_name: orbstack-test-neo4j
+    environment:
+      # Neo4j configuration
+      - NEO4J_AUTH=neo4j/testpassword
+      - NEO4J_dbms_security_auth__minimum__password__length=8
+      - NEO4J_ACCEPT_LICENSE_AGREEMENT=yes
+      
+      # OrbStack-optimized memory settings (reduced due to efficiency)
+      - NEO4J_dbms_memory_pagecache_size=256M
+      - NEO4J_dbms_memory_heap_initial__size=256M
+      - NEO4J_dbms_memory_heap_max__size=256M
+      
+      # Performance tuning for containers
+      - NEO4J_dbms_jvm_additional=-XX:+ExitOnOutOfMemoryError
+      - NEO4J_dbms_default__listen__address=0.0.0.0
+      
+    ports:
+      - "7474:7474"  # HTTP
+      - "7687:7687"  # Bolt
+    
+    volumes:
+      # OrbStack-optimized volume with delegated consistency
+      - type: volume
+        source: orbstack_neo4j_data
+        target: /data
+        volume:
+          nocopy: true
+      
+      # Logs with delegated mount for better performance
+      - type: bind
+        source: ./logs/neo4j
+        target: /logs
+        consistency: delegated
+    
+    networks:
+      - orbstack-test-network
+    
+    # OrbStack-optimized healthcheck
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7474 || exit 1"]
+      interval: 5s      # Faster with OrbStack
+      timeout: 5s       # Reduced timeout
+      retries: 10
+      start_period: 15s # Reduced startup period
+    
+    # Resource limits optimized for OrbStack
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.orbstack
+      # OrbStack build optimizations
+      cache_from:
+        - type=local,src=/tmp/.buildx-cache
+      args:
+        BUILDKIT_INLINE_CACHE: 1
+    
+    container_name: orbstack-graphiti-test-runner
+    
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    
+    environment:
+      # Neo4j connection settings
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=testpassword
+      
+      # Graphiti settings
+      - GRAPHITI_SERVICE_URL=http://localhost:8000
+      - GRAPHITI_ENTITY_TYPES=question,answer,user,topic
+      
+      # Test environment
+      - ENVIRONMENT=test
+      - LOG_LEVEL=DEBUG
+      
+      # API Keys
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - LOGFIRE_TOKEN=${LOGFIRE_TOKEN:-}
+      
+      # OrbStack-specific optimizations
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+      - PYTEST_CACHE_DIR=/tmp/pytest_cache
+    
+    volumes:
+      # OrbStack-optimized volume mounts
+      # Source code with cached consistency for read-heavy operations
+      - type: bind
+        source: .
+        target: /app
+        consistency: cached
+        bind:
+          create_host_path: true
+      
+      # Exclude virtual environments and caches
+      - /app/.venv
+      - /app/venv
+      - /app/__pycache__
+      - /app/.pytest_cache
+      - /app/.mypy_cache
+      - /app/.ruff_cache
+      
+      # Test results with delegated consistency
+      - type: bind
+        source: ./test-results
+        target: /app/test-results
+        consistency: delegated
+        bind:
+          create_host_path: true
+      
+      # Shared cache volume for better performance
+      - type: volume
+        source: orbstack_pip_cache
+        target: /root/.cache/pip
+    
+    networks:
+      - orbstack-test-network
+    
+    stdin_open: true
+    tty: true
+    
+    # Resource limits for test runner
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 2G
+
+networks:
+  orbstack-test-network:
+    driver: bridge
+    driver_opts:
+      # OrbStack network optimizations
+      com.docker.network.driver.mtu: 1450
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  orbstack_neo4j_data:
+    driver: local
+    driver_opts:
+      # OrbStack volume optimizations
+      type: none
+      o: bind
+      device: ${PWD}/.orbstack-volumes/neo4j
+  
+  orbstack_pip_cache:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PWD}/.orbstack-volumes/pip-cache

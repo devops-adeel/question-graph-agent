@@ -87,7 +87,7 @@ class Ask(BaseNode[QuestionState]):
             span.set_attribute('generated_question', result.output)
             logfire.info('Question generated', question=result.output)
             
-            return Answer(result.output)
+            return Answer(question=result.output)
 
 
 class Answer(BaseNode[QuestionState]):
@@ -114,7 +114,7 @@ class Answer(BaseNode[QuestionState]):
             span.set_attribute('user_answer', answer)
             logfire.info('User answer collected', question=self.question, answer=answer)
             
-            return Evaluate(answer)
+            return Evaluate(answer=answer)
 
 
 class EvaluationOutput(BaseModel, use_attribute_docstrings=True):
@@ -182,7 +182,7 @@ class Evaluate(BaseNode[QuestionState, None, str]):
                               question=ctx.state.question, 
                               answer=self.answer, 
                               comment=result.output.comment)
-                return Reprimand(result.output.comment)
+                return Reprimand(comment=result.output.comment)
 
 
 class Reprimand(BaseNode[QuestionState]):

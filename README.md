@@ -133,9 +133,22 @@ question-graph-agent/
 ## Development
 
 ### Running Tests
+
+#### Local Testing
 ```bash
 pytest
 ```
+
+#### Containerized Testing with OrbStack
+```bash
+# Run tests in containers (requires OrbStack on macOS)
+./run-tests-orbstack.sh
+
+# Run specific test file
+./run-tests-orbstack.sh tests/test_enhanced_nodes.py
+```
+
+For detailed OrbStack setup and performance benefits, see [OrbStack Testing Documentation](docs/orbstack-testing.md).
 
 ### Code Formatting
 ```bash
