@@ -75,7 +75,7 @@ class EnhancedAsk(BaseNode[QuestionState]):
                     logger.error(f"Failed to store question in memory: {e}")
                     span.set_attribute('memory_error', str(e))
             
-            return Answer(result.output)
+            return Answer(question=result.output)
 
 
 class EnhancedAnswer(BaseNode[QuestionState]):
@@ -106,7 +106,7 @@ class EnhancedAnswer(BaseNode[QuestionState]):
             if hasattr(ctx.state, 'last_response_time'):
                 ctx.state.last_response_time = response_time
             
-            return EnhancedEvaluate(answer, response_time=response_time)
+            return EnhancedEvaluate(answer=answer, response_time=response_time)
 
 
 class EnhancedEvaluate(BaseNode[QuestionState, None, str]):
@@ -190,7 +190,7 @@ class EnhancedEvaluate(BaseNode[QuestionState, None, str]):
                               question=ctx.state.question, 
                               answer=self.answer, 
                               comment=result.output.comment)
-                return EnhancedReprimand(result.output.comment)
+                return EnhancedReprimand(comment=result.output.comment)
 
 
 class EnhancedReprimand(BaseNode[QuestionState]):

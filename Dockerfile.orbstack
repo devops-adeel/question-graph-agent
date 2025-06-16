@@ -1,0 +1,68 @@
+# OrbStack-optimized Dockerfile for testing
+# Uses multi-stage build and OrbStack-specific optimizations
+
+# Stage 1: Dependencies
+FROM python:3.11-slim as dependencies
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy only dependency files for better layer caching
+COPY requirements.txt requirements-dev.txt pyproject.toml ./
+
+# OrbStack optimization: Use pip cache mount
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip setuptools wheel && \
+    pip install -r requirements.txt && \
+    pip install -r requirements-dev.txt
+
+# Stage 2: Application
+FROM python:3.11-slim as application
+
+# Install runtime dependencies only
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy installed packages from dependencies stage
+COPY --from=dependencies /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=dependencies /usr/local/bin /usr/local/bin
+
+# Copy application code
+COPY . .
+
+# Install package in development mode
+RUN pip install -e . --no-deps
+
+# OrbStack optimization: Pre-compile Python files
+RUN python -m compileall -q .
+
+# Copy wait script
+COPY wait-for-neo4j.sh /app/wait-for-neo4j.sh
+RUN chmod +x /app/wait-for-neo4j.sh
+
+# Environment optimizations
+ENV PYTHONPATH=/app \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    # OrbStack: Optimize pytest
+    PYTEST_ADDOPTS="--tb=short -v" \
+    PYTEST_CACHE_DIR=/tmp/pytest_cache
+
+# Create non-root user for security
+RUN useradd -m -u 1000 testuser && \
+    chown -R testuser:testuser /app
+
+USER testuser
+
+# OrbStack optimization: Use exec form for better signal handling
+ENTRYPOINT ["/app/wait-for-neo4j.sh"]
+CMD ["python", "test_answer_creation.py"]
