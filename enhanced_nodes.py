@@ -12,6 +12,7 @@ from datetime import datetime
 
 import logfire
 from pydantic import Field
+from pydantic_ai import format_as_xml
 from pydantic_graph import BaseNode, End, GraphRunContext
 
 from question_graph import (
