@@ -167,6 +167,12 @@ flake8
 pylint question_graph
 ```
 
+## Documentation
+
+- [Changelog](docs/CHANGELOG.md) - Detailed version history and release notes
+- [OrbStack Testing](docs/orbstack-testing.md) - Containerized testing guide
+- [CLAUDE.md](CLAUDE.md) - Project guidelines and implementation status
+
 ## Contributing
 
 1. Fork the repository
