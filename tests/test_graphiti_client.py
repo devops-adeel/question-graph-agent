@@ -10,369 +10,283 @@ import uuid
 
 from graphiti_client import (
     GraphitiClient,
-    GraphitiSession,
-    initialize_graphiti_state,
+    SessionStats,
+    EntityAdapter,
 )
 from graphiti_entities import (
     QuestionEntity,
     AnswerEntity,
     UserEntity,
     TopicEntity,
-    DifficultyLevel,
-    AnswerStatus,
 )
-from graphiti_relationships import AnsweredRelationship
+from graphiti_relationships import AnsweredRelationship, RequiresKnowledgeRelationship
 from question_graph import QuestionState
 
 
-class TestGraphitiSession:
-    """Test GraphitiSession class."""
+class TestEntityAdapter:
+    """Test EntityAdapter class."""
     
-    def test_session_creation(self):
-        """Test creating a new session."""
-        session = GraphitiSession()
+    def test_adapt_question_entity(self):
+        """Test adapting QuestionEntity for Graphiti."""
+        question = QuestionEntity(
+            content="What is the capital of France?",
+            difficulty="easy",
+            topics=["geography", "france"]
+        )
         
-        assert session.session_id is not None
-        assert session.user_id == "default_user"
-        assert session.episode_count == 0
-        assert session.entity_count == 0
-        assert session.relationship_count == 0
-        assert isinstance(session.start_time, datetime)
+        adapted = EntityAdapter.adapt_entity(question)
+        
+        assert adapted["name"] == "What is the capital of France?"
+        assert adapted["entity_type"] == "question"
+        assert adapted["properties"]["difficulty"] == "easy"
+        assert adapted["properties"]["topics"] == ["geography", "france"]
     
-    def test_session_counters(self):
-        """Test incrementing session counters."""
-        session = GraphitiSession()
+    def test_adapt_user_entity(self):
+        """Test adapting UserEntity for Graphiti."""
+        user = UserEntity(
+            user_id="user123",
+            name="Test User"
+        )
         
-        session.increment_episode()
-        session.increment_entity()
-        session.increment_entity()
-        session.increment_relationship()
+        adapted = EntityAdapter.adapt_entity(user)
         
-        assert session.episode_count == 1
-        assert session.entity_count == 2
-        assert session.relationship_count == 1
+        assert adapted["name"] == "Test User"
+        assert adapted["entity_type"] == "user"
+        assert adapted["properties"]["user_id"] == "user123"
 
 
 class TestGraphitiClient:
     """Test GraphitiClient class."""
     
     @pytest.fixture
-    def mock_neo4j_manager(self):
-        """Create mock Neo4j connection manager."""
-        manager = Mock()
-        manager.connect_async = AsyncMock(return_value=Mock())
-        manager.close_async = AsyncMock()
-        manager.execute_query_async = AsyncMock(return_value=[])
-        return manager
+    def mock_graphiti(self):
+        """Create mock Graphiti instance."""
+        mock = Mock()
+        mock.add_entity = AsyncMock()
+        mock.add_relationship = AsyncMock()
+        mock.add_episode = AsyncMock()
+        mock.search = AsyncMock(return_value=[])
+        mock.get_entity = AsyncMock()
+        mock.get_entities = AsyncMock(return_value=[])
+        return mock
     
     @pytest.fixture
-    def mock_graphiti_manager(self):
-        """Create mock Graphiti connection manager."""
-        manager = Mock()
-        manager.close_async = AsyncMock()
-        return manager
-    
-    @pytest.fixture
-    def mock_fallback_manager(self):
-        """Create mock fallback manager."""
-        manager = Mock()
-        manager.check_and_activate = AsyncMock(return_value=False)
-        manager.state = Mock(is_active=False)
-        return manager
-    
-    @pytest.fixture
-    def client(self, mock_neo4j_manager, mock_graphiti_manager, mock_fallback_manager):
-        """Create GraphitiClient with mocks."""
-        with patch('graphiti_client.Neo4jConnectionManager', return_value=mock_neo4j_manager):
-            with patch('graphiti_client.GraphitiConnectionManager', return_value=mock_graphiti_manager):
-                with patch('graphiti_client.get_fallback_manager', return_value=mock_fallback_manager):
-                    client = GraphitiClient()
-                    # Mock the Graphiti instance
-                    client._graphiti = Mock()
-                    client._graphiti.add_entity = AsyncMock()
-                    client._graphiti.add_relationship = AsyncMock()
-                    client._graphiti.add_episode = AsyncMock()
-                    return client
+    def client(self, mock_graphiti):
+        """Create GraphitiClient with mocked Graphiti."""
+        with patch('graphiti_client.Graphiti', return_value=mock_graphiti):
+            return GraphitiClient()
     
     @pytest.mark.asyncio
-    async def test_connect_success(self, client):
-        """Test successful connection."""
-        with patch('graphiti_client.check_system_health', return_value={'status': 'healthy'}):
-            result = await client.connect()
-        
-        assert result is True
-        client._neo4j_manager.connect_async.assert_called_once()
-    
-    @pytest.mark.asyncio
-    async def test_connect_unhealthy_with_fallback(self, client):
-        """Test connection with unhealthy system and fallback."""
-        with patch('graphiti_client.check_system_health', return_value={'status': 'unhealthy'}):
-            result = await client.connect()
-        
-        assert result is False
-        client.fallback_manager.check_and_activate.assert_called_once()
-    
-    @pytest.mark.asyncio
-    async def test_disconnect(self, client):
-        """Test disconnection."""
-        await client.disconnect()
-        
-        client._neo4j_manager.close_async.assert_called_once()
-        client._graphiti_manager.close_async.assert_called_once()
-    
-    @pytest.mark.asyncio
-    async def test_store_question(self, client):
-        """Test storing a question entity."""
+    async def test_store_entity(self, client, mock_graphiti):
+        """Test storing an entity."""
         question = QuestionEntity(
-            id="q1",
-            content="Test question?",
-            difficulty=DifficultyLevel.MEDIUM,
+            content="What is Python?",
+            difficulty="easy",
+            topics=["programming"]
+        )
+        
+        # Mock the response
+        mock_graphiti.add_entity.return_value = {
+            "uuid": "test-uuid",
+            "name": "What is Python?",
+            "entity_type": "question"
+        }
+        
+        result = await client.store_entity(question)
+        
+        assert result == "test-uuid"
+        mock_graphiti.add_entity.assert_called_once()
+    
+    @pytest.mark.asyncio
+    async def test_store_relationship(self, client, mock_graphiti):
+        """Test storing a relationship."""
+        relationship = AnsweredRelationship(
+            user_id="user123",
+            question_id="q456",
+            answer_id="a789",
+            score=1.0,
+            response_time=2.5
+        )
+        
+        # Mock the response
+        mock_graphiti.add_relationship.return_value = {
+            "uuid": "rel-uuid",
+            "relationship_type": "answered"
+        }
+        
+        result = await client.store_relationship(
+            relationship,
+            source_id="user123",
+            target_id="q456"
+        )
+        
+        assert result == "rel-uuid"
+        mock_graphiti.add_relationship.assert_called_once()
+    
+    @pytest.mark.asyncio
+    async def test_store_question(self, client, mock_graphiti):
+        """Test storing a question through convenience method."""
+        # Mock entity storage
+        mock_graphiti.add_entity.return_value = {
+            "uuid": "q-uuid",
+            "name": "Test question?",
+            "entity_type": "question"
+        }
+        
+        entity = await client.store_question(
+            question="Test question?",
+            difficulty="medium",
             topics=["test"]
         )
         
-        result = await client.store_question(question)
-        
-        assert result is True
-        assert client._session.entity_count == 1
-        client._graphiti.add_entity.assert_called_once()
+        assert isinstance(entity, QuestionEntity)
+        assert entity.id == "q-uuid"
+        assert entity.content == "Test question?"
     
     @pytest.mark.asyncio
-    async def test_store_answer(self, client):
-        """Test storing an answer with relationships."""
-        question = QuestionEntity(
-            id="q1",
-            content="Test question?",
-            difficulty=DifficultyLevel.MEDIUM
+    async def test_store_qa_pair(self, client, mock_graphiti):
+        """Test storing a complete Q&A pair."""
+        # Mock all the storage calls
+        mock_graphiti.add_entity.side_effect = [
+            {"uuid": "answer-uuid"},  # Answer entity
+            {"uuid": "user-uuid"}     # User entity  
+        ]
+        mock_graphiti.add_relationship.return_value = {"uuid": "rel-uuid"}
+        
+        success = await client.store_qa_pair(
+            question_id="q123",
+            question="What is 2+2?",
+            answer="4",
+            is_correct=True,
+            user_id="user456",
+            response_time=1.5
         )
         
-        answer = AnswerEntity(
-            id="a1",
-            question_id="q1",
-            user_id="u1",
-            content="Test answer",
-            status=AnswerStatus.CORRECT,
-            timestamp=datetime.now()
-        )
-        
-        user = UserEntity(
-            id="u1",
-            session_id="session1"
-        )
-        
-        result = await client.store_answer(answer, question, user)
-        
-        assert result is True
-        assert client._session.entity_count == 1
-        assert client._session.relationship_count == 1
-        
-        # Verify both entity and relationship were added
-        assert client._graphiti.add_entity.call_count == 1
-        assert client._graphiti.add_relationship.call_count == 1
+        assert success is True
+        assert mock_graphiti.add_entity.call_count == 2
+        mock_graphiti.add_relationship.assert_called_once()
     
     @pytest.mark.asyncio
-    async def test_create_qa_episode(self, client):
-        """Test creating a Q&A episode."""
-        question = QuestionEntity(id="q1", content="Test?")
-        answer = AnswerEntity(
-            id="a1",
-            question_id="q1",
-            user_id="u1",
-            content="Answer",
-            status=AnswerStatus.CORRECT
-        )
-        user = UserEntity(id="u1")
-        
-        result = await client.create_qa_episode(
-            question=question,
-            answer=answer,
-            user=user,
-            evaluation_correct=True
-        )
-        
-        assert result is True
-        assert client._session.episode_count == 1
-        client._graphiti.add_episode.assert_called_once()
-    
-    @pytest.mark.asyncio
-    async def test_get_user_history(self, client):
-        """Test getting user history."""
-        # Mock query results
-        mock_results = [
+    async def test_get_recent_questions(self, client, mock_graphiti):
+        """Test retrieving recent questions."""
+        # Mock search results
+        mock_graphiti.search.return_value = [
             {
-                "q": {"id": "q1", "content": "Question 1?"},
-                "a": {"id": "a1", "content": "Answer 1"},
-                "r": {"timestamp": datetime.now().isoformat()}
+                "uuid": "q1",
+                "name": "Question 1",
+                "entity_type": "question",
+                "created_at": datetime.now().isoformat()
+            },
+            {
+                "uuid": "q2", 
+                "name": "Question 2",
+                "entity_type": "question",
+                "created_at": datetime.now().isoformat()
             }
         ]
-        client._neo4j_manager.execute_query_async.return_value = mock_results
         
-        history = await client.get_user_history("user1", limit=5)
+        questions = await client.get_recent_questions(limit=2)
         
-        assert len(history) == 1
-        assert history[0]["question"]["id"] == "q1"
-        client._neo4j_manager.execute_query_async.assert_called_once()
+        assert len(questions) == 2
+        assert all(isinstance(q, QuestionEntity) for q in questions)
+        mock_graphiti.search.assert_called_once()
     
     @pytest.mark.asyncio
-    async def test_get_related_questions(self, client):
-        """Test getting related questions."""
-        # Mock query results
-        mock_results = [
-            {"q": {
-                "id": "q1",
-                "content": "Related question?",
-                "difficulty": "MEDIUM",
-                "topics": ["test"],
-                "asked_count": 0,
-                "correct_rate": 0.0
-            }}
-        ]
-        client._neo4j_manager.execute_query_async.return_value = mock_results
-        
-        questions = await client.get_related_questions("test", difficulty="MEDIUM")
-        
-        assert len(questions) == 1
-        assert questions[0].id == "q1"
-        assert questions[0].difficulty == DifficultyLevel.MEDIUM
-    
-    @pytest.mark.asyncio
-    async def test_update_user_mastery(self, client):
-        """Test updating user mastery."""
-        user = UserEntity(id="u1")
-        topic = TopicEntity(id="t1", name="Test Topic")
-        
-        # Mock query results
-        mock_mastery = [{"m": {
-            "mastery_score": 0.5,
-            "learning_rate": 0.1,
-            "total_attempts": 5,
-            "correct_attempts": 3
-        }}]
-        client._neo4j_manager.execute_query_async.side_effect = [
-            mock_mastery,  # First query to get/create mastery
-            []  # Second query to update score
-        ]
-        
-        result = await client.update_user_mastery(
-            user=user,
-            topic=topic,
-            correct=True,
-            time_taken=10.5
+    async def test_create_qa_episode(self, client, mock_graphiti):
+        """Test creating a Q&A episode."""
+        # Create mock entities
+        question = QuestionEntity(
+            id="q123",
+            content="What is AI?",
+            difficulty="medium",
+            topics=["technology", "ai"]
         )
+        answer = AnswerEntity(
+            id="a456",
+            content="AI is artificial intelligence",
+            status="correct",
+            response_time=2.5
+        )
+        user = UserEntity(
+            id="u789",
+            user_id="user123",
+            name="Test User",
+            session_id="session456"
+        )
+        
+        # Mock episode creation
+        mock_graphiti.add_episode.return_value = {
+            "uuid": "episode-uuid",
+            "name": "Q&A Session Episode"
+        }
+        
+        # Mock episode builder
+        with patch.object(client, 'episode_builder') as mock_builder:
+            mock_builder.build_qa_episode.return_value = {
+                "name": "Q&A Episode",
+                "episode_body": "User answered: AI is artificial intelligence",
+                "source": "message",
+                "reference_time": datetime.now()
+            }
+            
+            result = await client.create_qa_episode(
+                question=question,
+                answer=answer,
+                user=user,
+                evaluation_correct=True
+            )
         
         assert result is True
-        assert client._neo4j_manager.execute_query_async.call_count == 2
-    
-    def test_get_session_stats(self, client):
-        """Test getting session statistics."""
-        # Set some counts
-        client._session.episode_count = 5
-        client._session.entity_count = 10
-        client._session.relationship_count = 8
-        
-        stats = client.get_session_stats()
-        
-        assert stats["episode_count"] == 5
-        assert stats["entity_count"] == 10
-        assert stats["relationship_count"] == 8
-        assert stats["session_id"] == client._session.session_id
-        assert "duration_seconds" in stats
+        mock_builder.build_qa_episode.assert_called_once()
     
     @pytest.mark.asyncio
-    async def test_session_context(self, client):
-        """Test session context manager."""
-        with patch.object(client, 'connect', new_callable=AsyncMock) as mock_connect:
-            with patch.object(client, 'disconnect', new_callable=AsyncMock) as mock_disconnect:
-                mock_connect.return_value = True
-                
-                async with client.session_context() as session:
-                    assert session is client
-                
-                mock_connect.assert_called_once()
-                mock_disconnect.assert_called_once()
-
-
-class TestQuestionStateIntegration:
-    """Test QuestionState integration with GraphitiClient."""
-    
-    @pytest.mark.asyncio
-    async def test_initialize_graphiti_state_new(self):
-        """Test initializing new state with Graphiti."""
-        with patch('question_graph.GraphitiClient') as mock_client_class:
-            mock_client = Mock()
-            mock_client.connect = AsyncMock(return_value=True)
-            mock_client_class.return_value = mock_client
-            
-            state = await initialize_graphiti_state(enable_graphiti=True)
-            
-            assert state is not None
-            assert state.session_id is not None
-            assert state.graphiti_client is mock_client
-            assert state.current_user is not None
-            mock_client.connect.assert_called_once()
-    
-    @pytest.mark.asyncio
-    async def test_initialize_graphiti_state_existing(self):
-        """Test enhancing existing state with Graphiti."""
-        existing_state = QuestionState()
-        existing_state.session_id = "existing_session"
+    async def test_error_handling(self, client, mock_graphiti):
+        """Test error handling in client methods."""
+        # Make add_entity raise an exception
+        mock_graphiti.add_entity.side_effect = Exception("Storage failed")
         
-        with patch('question_graph.GraphitiClient') as mock_client_class:
-            mock_client = Mock()
-            mock_client.connect = AsyncMock(return_value=True)
-            mock_client_class.return_value = mock_client
-            
-            state = await initialize_graphiti_state(
-                state=existing_state,
-                session_id="existing_session",
-                enable_graphiti=True
-            )
-            
-            assert state is existing_state
-            assert state.session_id == "existing_session"
-            assert state.graphiti_client is mock_client
-    
-    @pytest.mark.asyncio
-    async def test_initialize_graphiti_state_disabled(self):
-        """Test initializing state with Graphiti disabled."""
-        state = await initialize_graphiti_state(enable_graphiti=False)
-        
-        assert state is not None
-        assert state.session_id is not None
-        assert state.graphiti_client is None
-        assert state.current_user is None
-    
-    @pytest.mark.asyncio
-    async def test_initialize_graphiti_state_failure(self):
-        """Test initialization when Graphiti connection fails."""
-        with patch('question_graph.GraphitiClient') as mock_client_class:
-            mock_client = Mock()
-            mock_client.connect = AsyncMock(side_effect=Exception("Connection failed"))
-            mock_client_class.return_value = mock_client
-            
-            state = await initialize_graphiti_state(enable_graphiti=True)
-            
-            assert state is not None
-            assert state.session_id is not None
-            assert state.graphiti_client is None  # Should be None after failure
-            assert state.current_user is None
-    
-    def test_question_state_with_graphiti(self):
-        """Test QuestionState can hold GraphitiClient."""
-        client = GraphitiClient(enable_fallback=False, enable_circuit_breaker=False)
-        user = UserEntity(id="test_user")
-        
-        state = QuestionState(
-            graphiti_client=client,
-            current_user=user,
-            session_id="test_session"
+        question = QuestionEntity(
+            content="Test question?",
+            difficulty="easy",
+            topics=["test"]
         )
         
-        assert state.graphiti_client is client
-        assert state.current_user is user
-        assert state.session_id == "test_session"
+        # Should handle error gracefully
+        result = await client.store_entity(question)
+        assert result is None  # Returns None on error
+
+
+class TestSessionStats:
+    """Test SessionStats class."""
+    
+    def test_stats_initialization(self):
+        """Test SessionStats initialization."""
+        stats = SessionStats()
         
-        # Test serialization excludes these fields
-        state_dict = state.model_dump()
-        assert "graphiti_client" not in state_dict
-        assert "current_user" not in state_dict
-        assert "session_id" in state_dict  # This should be included
+        assert stats.questions_asked == 0
+        assert stats.correct_answers == 0
+        assert stats.total_time == 0.0
+        assert stats.topics == set()
+    
+    def test_update_stats(self):
+        """Test updating session statistics."""
+        stats = SessionStats()
+        
+        stats.questions_asked = 10
+        stats.correct_answers = 7
+        stats.total_time = 120.5
+        stats.topics = {"math", "science", "history"}
+        
+        summary = stats.get_summary()
+        
+        assert summary["questions"] == 10
+        assert summary["correct"] == 7
+        assert summary["accuracy"] == 0.7
+        assert summary["avg_time"] == 12.05
+        assert summary["topics_count"] == 3
+
+
+# Note: The following tests were for non-existent functionality
+# and have been removed:
+# - TestGraphitiSession (GraphitiSession class doesn't exist)
+# - Tests for initialize_graphiti_state (function doesn't exist)
