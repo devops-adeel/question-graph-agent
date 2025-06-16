@@ -31,6 +31,30 @@ from entity_extraction import EntityExtractor
 logger = logging.getLogger(__name__)
 
 
+class EnhancedQuestionState(QuestionState):
+    """Extended state with memory tracking fields.
+    
+    This class extends the base QuestionState with additional fields needed
+    for the enhanced nodes to track memory integration, performance metrics,
+    and user interaction patterns.
+    """
+    
+    current_question_id: Optional[str] = Field(
+        default=None,
+        description="ID of the current question stored in Graphiti"
+    )
+    
+    last_response_time: Optional[float] = Field(
+        default=None,
+        description="Time taken to answer the last question in seconds"
+    )
+    
+    consecutive_incorrect: int = Field(
+        default=0,
+        description="Number of consecutive incorrect answers"
+    )
+
+
 class EnhancedAsk(BaseNode[QuestionState]):
     """Enhanced Ask node that stores questions in memory."""
     
@@ -222,7 +246,7 @@ class EnhancedReprimand(BaseNode[QuestionState]):
             return EnhancedAsk()
 
 
-def create_enhanced_state(base_state: Optional[QuestionState] = None) -> QuestionState:
+def create_enhanced_state(base_state: Optional[QuestionState] = None) -> EnhancedQuestionState:
     """Create an enhanced QuestionState with additional fields for memory tracking.
     
     Args:
@@ -232,18 +256,16 @@ def create_enhanced_state(base_state: Optional[QuestionState] = None) -> Questio
         Enhanced QuestionState
     """
     if base_state is None:
-        base_state = QuestionState()
+        return EnhancedQuestionState()
     
-    # Add additional tracking fields
-    # Note: These would ideally be part of an EnhancedQuestionState class
-    # but for compatibility we're adding them dynamically
-    if not hasattr(base_state, 'current_question_id'):
-        base_state.current_question_id = None
+    # Convert base state to enhanced state by copying fields
+    enhanced_state = EnhancedQuestionState(
+        question=base_state.question,
+        ask_agent_messages=base_state.ask_agent_messages,
+        evaluate_agent_messages=base_state.evaluate_agent_messages,
+        graphiti_client=base_state.graphiti_client if hasattr(base_state, 'graphiti_client') else None,
+        current_user=base_state.current_user if hasattr(base_state, 'current_user') else None,
+        session_id=base_state.session_id if hasattr(base_state, 'session_id') else None
+    )
     
-    if not hasattr(base_state, 'last_response_time'):
-        base_state.last_response_time = None
-    
-    if not hasattr(base_state, 'consecutive_incorrect'):
-        base_state.consecutive_incorrect = 0
-    
-    return base_state
+    return enhanced_state
