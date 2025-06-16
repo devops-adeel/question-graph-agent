@@ -100,7 +100,7 @@ class EnhancedAsk(BaseNode[QuestionState]):
                     logger.error(f"Failed to store question in memory: {e}")
                     span.set_attribute('memory_error', str(e))
             
-            return EnhancedAnswer(question=result.output)
+            return Answer(question=result.output)
 
 
 class EnhancedAnswer(BaseNode[QuestionState]):
